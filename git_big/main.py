@@ -128,9 +128,10 @@ class GitIgnore(object):
         self.lines = []
 
     def load(self):
-        with open(self.gitignore_path, 'r') as file_:
-            for line in file_:
-                self.lines.append(line.rstrip())
+        if os.path.exists(self.gitignore_path):
+            with open(self.gitignore_path, 'r') as file_:
+                for line in file_:
+                    self.lines.append(line.rstrip())
 
     def save(self):
         if self.dirty:
@@ -198,7 +199,10 @@ class Depot(object):
             click.echo('Object missing from depot: %s' % entry.digest)
             return
         click.echo('Pulling object: %s' % entry.digest)
+        if not entry.depot_object:
+            entry.depot_object = self.bucket.get_object(entry.depot_path)
         entry.depot_object.download(entry.cache_path)
+        entry.in_cache = True
         self.index.add(entry.digest)
         self._save_index()
 

@@ -2,4 +2,5 @@ bpython
 pip-review
 pip-tools
 pylint
+twine
 yapf

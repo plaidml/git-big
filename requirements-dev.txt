@@ -24,11 +24,15 @@ mccabe==0.6.1             # via pylint
 packaging==16.8           # via pip-review
 pip-review==0.5.3
 pip-tools==1.9.0
+pkginfo==1.4.1            # via twine
 pygments==2.2.0           # via bpython
 pylint==1.7.1
-requests==2.17.3          # via bpython
+requests-toolbelt==0.8.0  # via twine
+requests==2.17.3          # via bpython, requests-toolbelt, twine
 singledispatch==3.4.0.3   # via astroid, pylint
 six==1.10.0               # via astroid, bpython, pip-tools, pylint, singledispatch
+tqdm==4.14.0              # via twine
+twine==1.9.1
 urllib3==1.21.1           # via requests
 wcwidth==0.1.7            # via curtsies
 wrapt==1.10.10            # via astroid

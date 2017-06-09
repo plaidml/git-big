@@ -1,4 +1,4 @@
-.PHONY: all clean
+.PHONY: all clean publish
 
 VERSION=$(shell python -c 'import git_big; print(git_big.__version__)')
 
@@ -17,3 +17,6 @@ requirements-dev.txt: requirements-dev.in
 
 ${WHEEL}: setup.py git_big/*.py
 	python $< bdist_wheel
+
+publish: ${WHEEL}
+	twine upload ${WHEEL}
