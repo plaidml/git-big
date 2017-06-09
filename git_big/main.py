@@ -7,26 +7,15 @@ import stat
 
 import click
 import git
-import pathspec
-from pathspec import PathSpec
-from pathspec.patterns import GitWildMatchPattern
 from libcloud import DriverType, get_driver
 from libcloud.storage.types import ObjectDoesNotExistError
+from pathspec import PathSpec
+from pathspec.patterns import GitWildMatchPattern
 
 from . import __version__
 
-# from collections import defaultdict, OrderedDict
-
 CTX_SETTINGS = dict(help_option_names=['-h', '--help'])
 BLOCKSIZE = 64 * 1024
-
-# class Options(object):
-#     def __init__(self, verbose):
-#         self.verbose = verbose
-
-LOCATION_WORKING = 1 << 1
-LOCATION_CACHE = 1 << 2
-LOCATION_DEPOT = 1 << 3
 
 
 class DepotConfig(object):
@@ -369,7 +358,6 @@ class App(object):
 
 
 @click.group(context_settings=CTX_SETTINGS)
-# @click.option('-v', '--verbose', count=True)
 def cli():
     '''git big file manager'''
     pass

@@ -12,10 +12,8 @@ setup(
     install_requires=[
         'apache-libcloud',
         'click',
-        'enum34',
         'gitpython',
         'pathspec',
-        'py-flags',
     ],
     entry_points={'console_scripts': [
         'git-big=git_big.main:cli',
