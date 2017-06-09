@@ -1,0 +1,9 @@
+# Byte-compiled / optimized / DLL files
+*.py[cod]
+/.vscode
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
