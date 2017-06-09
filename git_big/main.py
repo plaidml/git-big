@@ -3,14 +3,14 @@ from __future__ import print_function
 import hashlib
 import json
 import os
+import shutil
 import stat
+import tempfile
 
 import click
 import git
 from libcloud import DriverType, get_driver
 from libcloud.storage.types import ObjectDoesNotExistError
-from pathspec import PathSpec
-from pathspec.patterns import GitWildMatchPattern
 
 from . import __version__
 
@@ -81,7 +81,9 @@ class Entry(object):
         self.rel_path = rel_path
         self.digest = digest
         self.working_path = None
+        self.working_inode = None
         self.cache_path = None
+        self.cache_inode = None
         self.depot_object = None
         self.in_working = False
         self.in_cache = False
@@ -100,26 +102,53 @@ def compute_digest(path):
 
 
 def lock_file(path):
-    '''make file read-only'''
+    '''remove writable permissions'''
     # click.echo('Locking file: %s' % path)
+    if not os.path.exists(path):
+        return
     mode = os.stat(path).st_mode
     perms = stat.S_IMODE(mode)
     mask = ~(stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH)
     os.chmod(path, perms & mask)
 
 
-def ignore_file(working_root, rel_path):
-    gitignore_path = os.path.join(working_root, '.gitignore')
-    with open(gitignore_path, 'r+') as gitignore_file:
-        lines = []
-        for line in gitignore_file:
-            lines.append(line.rstrip())
-        spec = PathSpec.from_lines(GitWildMatchPattern, lines)
-        if not spec.match_file(rel_path):
-            lines.append('/' + rel_path)
-            gitignore_file.seek(0)
-            for line in lines:
-                gitignore_file.write(line + '\n')
+def unlock_file(path):
+    '''add writable permissions'''
+    if not os.path.exists(path):
+        return
+    mode = os.stat(path).st_mode
+    perms = stat.S_IMODE(mode)
+    os.chmod(path, perms | stat.S_IWUSR | stat.S_IWGRP)
+
+
+class GitIgnore(object):
+    def __init__(self, repo):
+        self.gitignore_path = os.path.join(repo.working_dir, '.gitignore')
+        self.dirty = False
+        self.lines = []
+
+    def load(self):
+        with open(self.gitignore_path, 'r') as file_:
+            for line in file_:
+                self.lines.append(line.rstrip())
+
+    def save(self):
+        if self.dirty:
+            with open(self.gitignore_path, 'w') as file_:
+                for line in self.lines:
+                    file_.write(line + '\n')
+
+    def ignore(self, rel_path):
+        rule = '/' + rel_path
+        if rule not in self.lines:
+            self.lines.append(rule)
+            self.dirty = True
+
+    def unignore(self, rel_path):
+        rule = '/' + rel_path
+        if rule in self.lines:
+            self.lines.remove(rule)
+            self.dirty = True
 
 
 class Depot(object):
@@ -193,6 +222,8 @@ class Cache(object):
         entry.cache_path = os.path.join(self.objects_dir, entry.digest[:2],
                                         entry.digest[2:4], entry.digest)
         entry.in_cache = os.path.exists(entry.cache_path)
+        if entry.in_cache:
+            entry.cache_inode = os.stat(entry.cache_path).st_ino
 
     def get_status(self, entry):
         self._entry(entry)
@@ -210,13 +241,17 @@ class Cache(object):
     def put(self, entry):
         self._entry(entry)
         # add file to the cache
+        cache_dir = os.path.dirname(entry.cache_path)
+        if not os.path.exists(cache_dir):
+            os.makedirs(cache_dir)
         if not entry.in_cache:
             click.echo('Linking: %s -> %s' % (entry.rel_path, entry.digest))
-            cache_dir = os.path.dirname(entry.cache_path)
-            if not os.path.exists(cache_dir):
-                os.makedirs(cache_dir)
             os.link(entry.working_path, entry.cache_path)
             lock_file(entry.cache_path)
+        elif entry.working_inode != entry.cache_inode:
+            click.echo('Re-linking: %s -> %s' % (entry.rel_path, entry.digest))
+            os.unlink(entry.working_path)
+            os.link(entry.cache_path, entry.working_path)
         self.upstream.put(entry)
 
 
@@ -230,6 +265,8 @@ class Working(object):
         entry.working_path = os.path.join(self.repo.working_dir,
                                           entry.rel_path)
         entry.in_working = os.path.exists(entry.working_path)
+        if entry.in_working:
+            entry.working_inode = os.stat(entry.working_path).st_ino
 
     def get_status(self, entry):
         self._entry(entry)
@@ -237,16 +274,22 @@ class Working(object):
 
     def get(self, entry):
         self._entry(entry)
-        # if not here, get from upstream
+        self.upstream.get(entry)
+        if not entry.in_cache:
+            return  # we failed to find this object in the cache or the depot
         if not entry.in_working:
-            self.upstream.get(entry)
             click.echo('Linking: %s -> %s' % (entry.digest, entry.rel_path))
             entry_dir = os.path.dirname(entry.working_path)
             if not os.path.exists(entry_dir):
                 os.makedirs(entry_dir)
             os.link(entry.cache_path, entry.working_path)
+        elif entry.working_inode != entry.cache_inode:
+            click.echo('Re-linking: %s -> %s' % (entry.digest, entry.rel_path))
+            os.unlink(entry.working_path)
+            os.link(entry.cache_path, entry.working_path)
 
     def put(self, entry):
+        self._entry(entry)
         self.upstream.put(entry)
 
 
@@ -275,6 +318,7 @@ class App(object):
             self.depot = None
         self.cache = Cache(self.config, self.depot)
         self.working = Working(self.repo, self.config, self.cache)
+        self.git_ignore = GitIgnore(self.repo)
 
     def _save_config(self):
         with open(self.user_config_path, 'w') as file_:
@@ -292,37 +336,55 @@ class App(object):
         click.echo('On branch %s' % self.repo.active_branch.name)
         click.echo()
         click.echo('  Working')
-        click.echo('    Cache')
-        click.echo('      Depot')
+        click.echo('    Linked')
+        click.echo('      Cache')
+        click.echo('        Depot')
         click.echo()
         for entry in self._entries():
             self.working.get_status(entry)
             w_bit = entry.in_working and 'W' or ' '
             c_bit = entry.in_cache and 'C' or ' '
+            l_bit = entry.in_working and entry.in_cache and \
+                entry.working_inode == entry.cache_inode and 'L' or ' '
             d_bit = entry.in_depot and 'D' or ' '
-            click.echo('[ %s %s %s ] %s' % (w_bit, c_bit, d_bit,
-                                            entry.rel_path))
+            click.echo('[ %s %s %s %s ] %s' % (w_bit, l_bit, c_bit, d_bit,
+                                               entry.rel_path))
         click.echo()
 
     def cmd_add(self, paths):
-        for path in paths:
-            if os.path.isdir(path):
-                self._add_directory(path)
-            else:
-                self._add_file(path)
+        self.git_ignore.load()
+        for path in self._walk(paths):
+            self._add_file(path)
         self._save_config()
+        self.git_ignore.save()
 
     def cmd_remove(self, paths):
-        pass
+        self.git_ignore.load()
+        for path in self._walk(paths):
+            self._remove_file(path)
+        self._save_config()
+        self.git_ignore.save()
 
     def cmd_unlock(self, paths):
-        pass
+        self.git_ignore.load()
+        for path in self._walk(paths):
+            self._unlock_file(path)
+        self._save_config()
+        self.git_ignore.save()
 
-    def cmd_copy(self, src, tgt):
-        pass
+    def cmd_copy(self, srcs, tgt):
+        self.git_ignore.load()
+        for src, tgt in self._get_src_tgt_pairs(srcs, tgt):
+            self._copy_file(src, tgt)
+        self._save_config()
+        self.git_ignore.save()
 
-    def cmd_move(self, src, tgt):
-        pass
+    def cmd_move(self, srcs, tgt):
+        self.git_ignore.load()
+        for src, tgt in self._get_src_tgt_pairs(srcs, tgt):
+            self._move_file(src, tgt)
+        self._save_config()
+        self.git_ignore.save()
 
     def cmd_push(self):
         for entry in self._entries():
@@ -336,25 +398,95 @@ class App(object):
         for rel_path, digest in self.config.files.iteritems():
             yield Entry(rel_path, digest)
 
-    def _add_directory(self, path):
-        for root, _, files in os.walk(path):
-            for file_ in files:
-                self._add_file(os.path.join(root, file_))
+    def _walk(self, paths):
+        for path in self._inner_walk(paths):
+            if not os.path.islink(path):
+                yield path
 
-    def _add_file(self, working_path):
-        if not os.path.isfile(working_path):
-            return
-        if os.path.islink(working_path):
-            return
+    def _inner_walk(self, paths):
+        for path in paths:
+            if os.path.isdir(path):
+                for root, _, files in os.walk(path):
+                    for file_ in files:
+                        yield os.path.join(root, file_)
+            else:
+                yield path
+
+    def _add_file(self, path):
         rel_path = os.path.relpath(
-            os.path.abspath(working_path), self.repo.working_dir)
-        digest = compute_digest(working_path)
+            os.path.abspath(path), self.repo.working_dir)
+        digest = compute_digest(path)
         old_digest = self.repo_config.files.get(rel_path)
         if not old_digest or old_digest != digest:
             click.echo(rel_path)
-        lock_file(working_path)
-        ignore_file(self.repo.working_dir, rel_path)
+        lock_file(path)
+        self.git_ignore.ignore(rel_path)
         self.repo_config.files[rel_path] = digest
+
+    def _remove_file(self, path):
+        rel_path = os.path.relpath(
+            os.path.abspath(path), self.repo.working_dir)
+        if os.path.exists(path):
+            os.unlink(path)
+        self.git_ignore.unignore(rel_path)
+        if rel_path in self.repo_config.files:
+            click.echo(rel_path)
+            del self.repo_config.files[rel_path]
+
+    def _unlock_file(self, path):
+        rel_path = os.path.relpath(
+            os.path.abspath(path), self.repo.working_dir)
+        # split the hardlink into two separate copies
+        with tempfile.TemporaryFile() as tmp:
+            shutil.copy2(path, tmp.name)
+            shutil.move(tmp.name, path)
+        unlock_file(path)
+        self.git_ignore.unignore(rel_path)
+        if rel_path in self.repo_config.files:
+            del self.repo_config.files[rel_path]
+
+    def _get_src_tgt_pairs(self, srcs, tgt):
+        if len(srcs) > 1:
+            if not os.path.isdir(tgt):
+                click.echo(
+                    'Destination must be a directoy when specifying multiple sources'
+                )
+                return
+            for src in srcs:
+                yield (src, os.path.join(tgt, os.path.basename(src)))
+        else:
+            if os.path.isdir(tgt):
+                yield (srcs[0], os.path.join(tgt, os.path.basename(srcs[0])))
+            else:
+                yield (srcs[0], tgt)
+
+    def _copy_file(self, src, tgt):
+        rel_tgt = os.path.relpath(os.path.abspath(tgt), self.repo.working_dir)
+        if rel_tgt.startswith('..') or rel_tgt.startswith('/'):
+            click.echo('Destination must be inside repository: %s' % tgt)
+            return
+        rel_src = os.path.relpath(os.path.abspath(src), self.repo.working_dir)
+        if rel_src not in self.repo_config.files:
+            click.echo('Source not in index: %s' % src)
+            return
+        os.link(src, tgt)
+        self.git_ignore.ignore(rel_tgt)
+        self.repo_config.files[rel_tgt] = self.repo_config.files[rel_src]
+
+    def _move_file(self, src, tgt):
+        rel_src = os.path.relpath(os.path.abspath(src), self.repo.working_dir)
+        rel_tgt = os.path.relpath(os.path.abspath(tgt), self.repo.working_dir)
+        if rel_tgt.startswith('..') or rel_tgt.startswith('/'):
+            click.echo('Destination must be inside repository: %s' % tgt)
+            return
+        if rel_src not in self.repo_config.files:
+            click.echo('Source not in index: %s' % src)
+            return
+        os.rename(src, tgt)
+        self.git_ignore.unignore(rel_src)
+        self.git_ignore.ignore(rel_tgt)
+        self.repo_config.files[rel_tgt] = self.repo_config.files[rel_src]
+        del self.repo_config.files[rel_src]
 
 
 @click.group(context_settings=CTX_SETTINGS)
@@ -400,7 +532,7 @@ def add(paths):
 
 
 @cli.command('rm')
-@click.argument('paths', nargs=-1, type=click.Path(exists=True))
+@click.argument('paths', nargs=-1, type=click.Path())
 def cmd_remove(paths):
     '''Remove big files'''
     App().cmd_remove(paths)
@@ -414,19 +546,19 @@ def cmd_unlock(paths):
 
 
 @cli.command('mv')
-@click.argument('source', nargs=-1, type=click.Path(exists=True))
-@click.argument('dest', nargs=-1, type=click.Path())
-def cmd_move(source, dest):
+@click.argument('sources', nargs=-1, type=click.Path(exists=True))
+@click.argument('dest', nargs=1, type=click.Path())
+def cmd_move(sources, dest):
     '''Move big files'''
-    App().cmd_move(source, dest)
+    App().cmd_move(sources, dest)
 
 
 @cli.command('cp')
-@click.argument('source', nargs=-1, type=click.Path(exists=True))
-@click.argument('dest', nargs=-1, type=click.Path())
-def cmd_copy(source, dest):
+@click.argument('sources', nargs=-1, type=click.Path(exists=True))
+@click.argument('dest', nargs=1, type=click.Path())
+def cmd_copy(sources, dest):
     '''Copy big files'''
-    App().cmd_copy(source, dest)
+    App().cmd_copy(sources, dest)
 
 
 @cli.command()
