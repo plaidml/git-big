@@ -514,14 +514,18 @@ class App(object):
         self._install_hook('post-merge', 1)
 
     def _install_hook(self, hook, nargs):
+        args = ' '.join(['$%s' % x for x in range(1, nargs + 1)])
+        hook_content = '#!/bin/sh\nexec git big hooks %s %s\n' % (hook, args)
         hooks_dir = os.path.join(self.repo.git_dir, 'hooks')
         hook_path = os.path.join(hooks_dir, hook)
         if os.path.exists(hook_path):
+            with open(hook_path, 'r') as file_:
+                existing_content = file_.read()
+            if existing_content == hook_content:
+                return
             os.rename(hook_path, os.path.join(hooks_dir, '%s.git-big' % hook))
-        args = ' '.join(['$%s' % x for x in range(1, nargs + 1)])
         with open(hook_path, 'w') as file_:
-            print('#!/bin/sh', file=file_)
-            print('exec git big hooks %s %s' % (hook, args), file=file_)
+            file_.write(hook_content)
         make_executable(hook_path)
 
     def _call_hook_chain(self, hook, *args):
