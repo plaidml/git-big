@@ -29,7 +29,7 @@ git big init
 ```
 
 A user configuration file is located at `$HOME/.gitbig`.
-Its contents looks something like:
+Its contents look something like:
 
 ```
 {
@@ -134,8 +134,8 @@ $ git ci -m "Add bigfile.iso"
 $ git push origin master
 
 # Now let's clone this repository onto another machine
-$ git clone git@git-repo:demo.git
-$ git big init
+$ git clone git@git-repo:repo.git
+$ cd repo
 
 # Initially, the bigfile will not exist in the working directory
 $ ls bigfile.iso

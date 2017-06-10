@@ -6,6 +6,7 @@ import os
 import shutil
 import stat
 import tempfile
+import uuid
 
 import click
 import git
@@ -86,6 +87,7 @@ class Entry(object):
         self.cache_inode = None
         self.depot_object = None
         self.in_working = False
+        self.is_linked = False
         self.in_cache = False
         self.in_depot = False
 
@@ -119,6 +121,15 @@ def unlock_file(path):
     mode = os.stat(path).st_mode
     perms = stat.S_IMODE(mode)
     os.chmod(path, perms | stat.S_IWUSR | stat.S_IWGRP)
+
+
+def make_executable(path):
+    '''add executable permissions'''
+    if not os.path.exists(path):
+        return
+    mode = os.stat(path).st_mode
+    perms = stat.S_IMODE(mode)
+    os.chmod(path, perms | stat.S_IXUSR | stat.S_IXGRP)
 
 
 class GitIgnore(object):
@@ -228,6 +239,8 @@ class Cache(object):
         entry.in_cache = os.path.exists(entry.cache_path)
         if entry.in_cache:
             entry.cache_inode = os.stat(entry.cache_path).st_ino
+            if entry.in_working and entry.cache_inode == entry.working_inode:
+                entry.is_linked = True
 
     def get_status(self, entry):
         self._entry(entry)
@@ -311,7 +324,7 @@ class App(object):
 
         if os.path.exists(self.repo_config_path):
             with open(self.repo_config_path, 'r') as file_:
-                self.repo_config = RepoConfig(**json.load(file_))
+                self.repo_config = self._load_config(file_)
         else:
             self.repo_config = RepoConfig()
 
@@ -324,6 +337,9 @@ class App(object):
         self.working = Working(self.repo, self.config, self.cache)
         self.git_ignore = GitIgnore(self.repo)
 
+    def _load_config(self, file_):
+        return RepoConfig(**json.load(file_))
+
     def _save_config(self):
         with open(self.user_config_path, 'w') as file_:
             json.dump(dict(self.user_config), file_, indent=4)
@@ -333,8 +349,59 @@ class App(object):
             json.dump(dict(self.repo_config), file_, indent=4)
             file_.write('\n')
 
+    def _repo_uuid(self):
+        config_section = 'git-big'
+        option_name = 'uuid'
+        reader = self.repo.config_reader()
+        if reader.has_section(config_section):
+            return reader.get_value(config_section, option_name)
+        with self.repo.config_writer() as writer:
+            repo_uuid = str(uuid.uuid4())
+            writer.set_value(config_section, option_name, repo_uuid)
+            return repo_uuid
+
+    def _install_hooks(self):
+        self._install_hook('pre-push', 2)
+        self._install_hook('post-checkout', 3)
+        self._install_hook('post-merge', 1)
+
+    def _install_hook(self, hook, nargs):
+        hooks_dir = os.path.join(self.repo.git_dir, 'hooks')
+        hook_path = os.path.join(hooks_dir, hook)
+        if os.path.exists(hook_path):
+            os.rename(hook_path, os.path.join(hooks_dir, '%s.git-big' % hook))
+        args = ' '.join(['$%s' % x for x in range(1, nargs + 1)])
+        with open(hook_path, 'w') as file_:
+            print('#!/bin/sh', file=file_)
+            print('exec git big hooks %s %s' % (hook, args), file=file_)
+        make_executable(hook_path)
+
+    def _call_hook_chain(self, hook, *args):
+        hooks_dir = os.path.join(self.repo.git_dir, 'hooks')
+        hook_path = os.path.join(hooks_dir, '%s.git-big' % hook)
+        if not os.path.exists(hook_path):
+            return
+        os.execv(hook_path, [hook_path] + list(args))
+
+    def cmd_hooks_pre_push(self, remote, url):
+        click.echo('pre-push')
+        self.cmd_push()
+        self._call_hook_chain('pre-push', remote, url)
+
+    def cmd_hooks_post_checkout(self, previous, new, flag):
+        click.echo('post-checkout')
+        self.cmd_pull()
+        self._call_hook_chain('post-checkout', previous, new, flag)
+
+    def cmd_hooks_post_merge(self, flag):
+        click.echo('post-merge')
+        self.cmd_pull()
+        self._call_hook_chain('post-merge', flag)
+
     def cmd_init(self):
+        self._repo_uuid()
         self._save_config()
+        self._install_hooks()
 
     def cmd_status(self):
         click.echo('On branch %s' % self.repo.active_branch.name)
@@ -348,8 +415,7 @@ class App(object):
             self.working.get_status(entry)
             w_bit = entry.in_working and 'W' or ' '
             c_bit = entry.in_cache and 'C' or ' '
-            l_bit = entry.in_working and entry.in_cache and \
-                entry.working_inode == entry.cache_inode and 'L' or ' '
+            l_bit = entry.is_linked and 'L' or ' '
             d_bit = entry.in_depot and 'D' or ' '
             click.echo('[ %s %s %s %s ] %s' % (w_bit, l_bit, c_bit, d_bit,
                                                entry.rel_path))
@@ -397,6 +463,24 @@ class App(object):
     def cmd_pull(self):
         for entry in self._entries():
             self.working.get(entry)
+
+    def cmd_reachable(self):
+        reachable = set()
+        refs = self.repo.heads + self.repo.tags
+        for ref in refs:
+            tree = self.repo.tree(ref)
+            try:
+                blob = tree.join('.gitbig')
+            except KeyError:
+                continue
+            # click.echo('%s: %s' % (ref, blob.hexsha))
+            config = self._load_config(blob.data_stream)
+            for digest in config.files.itervalues():
+                # click.echo('\t%s: %s' % (rel_path, digest))
+                reachable.add(digest)
+        for digest in reachable:
+            click.echo(digest)
+        return reachable
 
     def _entries(self):
         for rel_path, digest in self.config.files.iteritems():
@@ -575,3 +659,39 @@ def push():
 def pull():
     '''Pull big files'''
     App().cmd_pull()
+
+
+@cli.group('hooks')
+def cmd_hooks():
+    pass
+
+
+@cmd_hooks.command('pre-push')
+@click.argument('remote')
+@click.argument('url')
+def cmd_hooks_pre_push(remote, url):
+    App().cmd_hooks_pre_push(remote, url)
+
+
+@cmd_hooks.command('post-checkout')
+@click.argument('previous')
+@click.argument('new')
+@click.argument('flag')
+def cmd_hooks_post_checkout(previous, new, flag):
+    App().cmd_hooks_post_checkout(previous, new, flag)
+
+
+@cmd_hooks.command('post-merge')
+@click.argument('flag')
+def cmd_hooks_post_merge(flag):
+    App().cmd_hooks_post_merge(flag)
+
+
+@cli.group()
+def dev():
+    pass
+
+
+@dev.command('reachable')
+def cmd_reachable():
+    App().cmd_reachable()
