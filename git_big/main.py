@@ -1,12 +1,16 @@
 from __future__ import print_function
 
+import getpass
 import hashlib
 import json
 import os
+import re
 import shutil
+import socket
 import stat
 import tempfile
 import uuid
+from StringIO import StringIO
 
 import click
 import git
@@ -164,13 +168,15 @@ class GitIgnore(object):
 
 
 class Depot(object):
-    def __init__(self, config):
+    def __init__(self, config, repo, repo_uuid):
         self.config = config.depot
+        self.repo = repo
         driver = get_driver(DriverType.STORAGE, self.config.driver)
         self.service = driver(self.config.key, self.config.secret)
         self.bucket = self.service.get_container(self.config.bucket)
         self.index_path = os.path.join(config.cache_dir, 'index')
         self.index = set()
+        self.refs_path = 'refs/%s' % repo_uuid
 
     def _entry(self, entry):
         self._load_index()
@@ -224,6 +230,27 @@ class Depot(object):
             self.bucket.upload_object(entry.cache_path, entry.depot_path)
             self.index.add(entry.digest)
             self._save_index()
+
+    def load_refs(self):
+        refs = []
+        obj = self.bucket.get_object(self.refs_path)
+        stream = obj.as_stream()
+        for line in stream:
+            refs.append(line.rstrip())
+        return (obj, refs)
+
+    def save_refs(self, refs):
+        extra = {
+            'meta_data': {
+                'host': socket.gethostname(),
+                'user': getpass.getuser(),
+                'path': self.repo.git_dir,
+            }
+        }
+        buf = '\n'.join(refs)
+        stream = StringIO(buf)
+        self.bucket.upload_object_via_stream(
+            stream, self.refs_path, extra=extra)
 
 
 class Cache(object):
@@ -330,78 +357,29 @@ class App(object):
 
         self.config = Config(self.user_config, self.repo_config)
         if self.config.depot:
-            self.depot = Depot(self.config)
+            self.depot = Depot(self.config, self.repo, self._repo_uuid())
         else:
             self.depot = None
         self.cache = Cache(self.config, self.depot)
         self.working = Working(self.repo, self.config, self.cache)
         self.git_ignore = GitIgnore(self.repo)
 
-    def _load_config(self, file_):
-        return RepoConfig(**json.load(file_))
-
-    def _save_config(self):
-        with open(self.user_config_path, 'w') as file_:
-            json.dump(dict(self.user_config), file_, indent=4)
-            file_.write('\n')
-
-        with open(self.repo_config_path, 'w') as file_:
-            json.dump(dict(self.repo_config), file_, indent=4)
-            file_.write('\n')
-
-    def _repo_uuid(self):
-        config_section = 'git-big'
-        option_name = 'uuid'
-        reader = self.repo.config_reader()
-        if reader.has_section(config_section):
-            return reader.get_value(config_section, option_name)
-        with self.repo.config_writer() as writer:
-            repo_uuid = str(uuid.uuid4())
-            writer.set_value(config_section, option_name, repo_uuid)
-            return repo_uuid
-
-    def _install_hooks(self):
-        self._install_hook('pre-push', 2)
-        self._install_hook('post-checkout', 3)
-        self._install_hook('post-merge', 1)
-
-    def _install_hook(self, hook, nargs):
-        hooks_dir = os.path.join(self.repo.git_dir, 'hooks')
-        hook_path = os.path.join(hooks_dir, hook)
-        if os.path.exists(hook_path):
-            os.rename(hook_path, os.path.join(hooks_dir, '%s.git-big' % hook))
-        args = ' '.join(['$%s' % x for x in range(1, nargs + 1)])
-        with open(hook_path, 'w') as file_:
-            print('#!/bin/sh', file=file_)
-            print('exec git big hooks %s %s' % (hook, args), file=file_)
-        make_executable(hook_path)
-
-    def _call_hook_chain(self, hook, *args):
-        hooks_dir = os.path.join(self.repo.git_dir, 'hooks')
-        hook_path = os.path.join(hooks_dir, '%s.git-big' % hook)
-        if not os.path.exists(hook_path):
-            return
-        os.execv(hook_path, [hook_path] + list(args))
-
-    def cmd_hooks_pre_push(self, remote, url):
-        click.echo('pre-push')
-        self.cmd_push()
-        self._call_hook_chain('pre-push', remote, url)
-
-    def cmd_hooks_post_checkout(self, previous, new, flag):
-        click.echo('post-checkout')
-        self.cmd_pull()
-        self._call_hook_chain('post-checkout', previous, new, flag)
-
-    def cmd_hooks_post_merge(self, flag):
-        click.echo('post-merge')
-        self.cmd_pull()
-        self._call_hook_chain('post-merge', flag)
-
     def cmd_init(self):
         self._repo_uuid()
         self._save_config()
         self._install_hooks()
+
+    def cmd_hooks_pre_push(self, remote, url):
+        self.cmd_push()
+        self._call_hook_chain('pre-push', remote, url)
+
+    def cmd_hooks_post_checkout(self, previous, new, flag):
+        self.cmd_pull()
+        self._call_hook_chain('post-checkout', previous, new, flag)
+
+    def cmd_hooks_post_merge(self, flag):
+        self.cmd_pull()
+        self._call_hook_chain('post-merge', flag)
 
     def cmd_status(self):
         click.echo('On branch %s' % self.repo.active_branch.name)
@@ -459,12 +437,21 @@ class App(object):
     def cmd_push(self):
         for entry in self._entries():
             self.working.put(entry)
+        self.depot.save_refs(self._find_reachable_objects())
 
     def cmd_pull(self):
         for entry in self._entries():
             self.working.get(entry)
+        self.depot.save_refs(self._find_reachable_objects())
 
     def cmd_reachable(self):
+        for digest in self._find_reachable_objects():
+            click.echo(digest)
+        obj, _ = self.depot.load_refs()
+        click.echo(obj.extra)
+        click.echo(obj.meta_data)
+
+    def _find_reachable_objects(self):
         reachable = set()
         refs = self.repo.heads + self.repo.tags
         for ref in refs:
@@ -478,9 +465,53 @@ class App(object):
             for digest in config.files.itervalues():
                 # click.echo('\t%s: %s' % (rel_path, digest))
                 reachable.add(digest)
-        for digest in reachable:
-            click.echo(digest)
         return reachable
+
+    def _load_config(self, file_):
+        return RepoConfig(**json.load(file_))
+
+    def _save_config(self):
+        with open(self.user_config_path, 'w') as file_:
+            json.dump(dict(self.user_config), file_, indent=4)
+            file_.write('\n')
+
+        with open(self.repo_config_path, 'w') as file_:
+            json.dump(dict(self.repo_config), file_, indent=4)
+            file_.write('\n')
+
+    def _repo_uuid(self):
+        config_section = 'git-big'
+        option_name = 'uuid'
+        reader = self.repo.config_reader()
+        if reader.has_section(config_section):
+            return reader.get_value(config_section, option_name)
+        with self.repo.config_writer() as writer:
+            repo_uuid = str(uuid.uuid4())
+            writer.set_value(config_section, option_name, repo_uuid)
+            return repo_uuid
+
+    def _install_hooks(self):
+        self._install_hook('pre-push', 2)
+        self._install_hook('post-checkout', 3)
+        self._install_hook('post-merge', 1)
+
+    def _install_hook(self, hook, nargs):
+        hooks_dir = os.path.join(self.repo.git_dir, 'hooks')
+        hook_path = os.path.join(hooks_dir, hook)
+        if os.path.exists(hook_path):
+            os.rename(hook_path, os.path.join(hooks_dir, '%s.git-big' % hook))
+        args = ' '.join(['$%s' % x for x in range(1, nargs + 1)])
+        with open(hook_path, 'w') as file_:
+            print('#!/bin/sh', file=file_)
+            print('exec git big hooks %s %s' % (hook, args), file=file_)
+        make_executable(hook_path)
+
+    def _call_hook_chain(self, hook, *args):
+        hooks_dir = os.path.join(self.repo.git_dir, 'hooks')
+        hook_path = os.path.join(hooks_dir, '%s.git-big' % hook)
+        if not os.path.exists(hook_path):
+            return
+        os.execv(hook_path, [hook_path] + list(args))
 
     def _entries(self):
         for rel_path, digest in self.config.files.iteritems():
@@ -604,6 +635,20 @@ def version():
 def init():
     '''Initialize big files'''
     App().cmd_init()
+
+
+@cli.command()
+@click.argument('repo')
+@click.argument('to_path', required=False)
+def clone(repo, to_path):
+    '''Clone a repository with big files'''
+    if not to_path:
+        to_path = re.split('[:/]', repo.rstrip('/').rstrip('.git'))[-1]
+    os.system('git clone %s %s' % (repo, to_path))
+    os.chdir(to_path)
+    app = App()
+    app.cmd_init()
+    app.cmd_pull()
 
 
 @cli.command('status')
