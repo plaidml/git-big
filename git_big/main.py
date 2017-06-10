@@ -233,7 +233,10 @@ class Depot(object):
 
     def load_refs(self):
         refs = []
-        obj = self.bucket.get_object(self.refs_path)
+        try:
+            obj = self.bucket.get_object(self.refs_path)
+        except ObjectDoesNotExistError:
+            return (None, refs)
         stream = obj.as_stream()
         for line in stream:
             refs.append(line.rstrip())
@@ -251,6 +254,13 @@ class Depot(object):
         stream = StringIO(buf)
         self.bucket.upload_object_via_stream(
             stream, self.refs_path, extra=extra)
+
+    def delete_refs(self):
+        try:
+            obj = self.bucket.get_object(self.refs_path)
+        except ObjectDoesNotExistError:
+            return
+        self.bucket.delete_object(obj)
 
 
 class Cache(object):
@@ -444,15 +454,20 @@ class App(object):
             self.working.get(entry)
         self.depot.save_refs(self._find_reachable_objects())
 
+    def cmd_drop(self):
+        self.depot.delete_refs()
+
     def cmd_reachable(self):
         for digest in self._find_reachable_objects():
             click.echo(digest)
         obj, _ = self.depot.load_refs()
-        click.echo(obj.extra)
-        click.echo(obj.meta_data)
+        if obj:
+            click.echo(obj.extra)
+            click.echo(obj.meta_data)
 
     def _find_reachable_objects(self):
         reachable = set()
+        configs_seen = set()
         refs = self.repo.heads + self.repo.tags
         for ref in refs:
             tree = self.repo.tree(ref)
@@ -460,11 +475,14 @@ class App(object):
                 blob = tree.join('.gitbig')
             except KeyError:
                 continue
+            if blob.hexsha in configs_seen:
+                continue
             # click.echo('%s: %s' % (ref, blob.hexsha))
             config = self._load_config(blob.data_stream)
             for digest in config.files.itervalues():
                 # click.echo('\t%s: %s' % (rel_path, digest))
                 reachable.add(digest)
+            configs_seen.add(blob.hexsha)
         return reachable
 
     def _load_config(self, file_):
@@ -625,22 +643,22 @@ def help(ctx, topic, **kw):
         click.echo(cli.commands[topic].get_help(ctx))
 
 
-@cli.command()
-def version():
+@cli.command('version')
+def cmd_version():
     '''Print version and exit'''
     click.echo(__version__)
 
 
-@cli.command()
-def init():
+@cli.command('init')
+def cmd_init():
     '''Initialize big files'''
     App().cmd_init()
 
 
-@cli.command()
+@cli.command('clone')
 @click.argument('repo')
 @click.argument('to_path', required=False)
-def clone(repo, to_path):
+def cmd_clone(repo, to_path):
     '''Clone a repository with big files'''
     if not to_path:
         to_path = re.split('[:/]', repo.rstrip('/').rstrip('.git'))[-1]
@@ -657,9 +675,9 @@ def cmd_status():
     App().cmd_status()
 
 
-@cli.command()
+@cli.command('add')
 @click.argument('paths', nargs=-1, type=click.Path(exists=True))
-def add(paths):
+def cmd_add(paths):
     '''Add big files'''
     App().cmd_add(paths)
 
@@ -694,16 +712,22 @@ def cmd_copy(sources, dest):
     App().cmd_copy(sources, dest)
 
 
-@cli.command()
-def push():
+@cli.command('push')
+def cmd_push():
     '''Push big files'''
     App().cmd_push()
 
 
-@cli.command()
-def pull():
+@cli.command('pull')
+def cmd_pull():
     '''Pull big files'''
     App().cmd_pull()
+
+
+@cli.command('drop')
+def cmd_drop():
+    '''Notify depot that repository is gone'''
+    App().cmd_drop()
 
 
 @cli.group('hooks')
@@ -732,7 +756,7 @@ def cmd_hooks_post_merge(flag):
     App().cmd_hooks_post_merge(flag)
 
 
-@cli.group()
+@cli.group('dev')
 def dev():
     pass
 
