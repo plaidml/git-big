@@ -308,6 +308,17 @@ class Cache(object):
             os.link(entry.cache_path, entry.working_path)
         self.upstream.put(entry)
 
+    def check(self):
+        '''Do an integrity check of the local cache'''
+        for root, _, files in os.walk(self.objects_dir):
+            for file_ in files:
+                path = os.path.join(root, file_)
+                digest = compute_digest(path)
+                if file_ != digest:
+                    click.echo('Error: mismatched content.')
+                    click.echo('  Path: %s' % path)
+                    click.echo('  Hash: %s' % digest)
+
 
 class Working(object):
     def __init__(self, repo, config, upstream):
@@ -464,6 +475,9 @@ class App(object):
         if obj:
             click.echo(obj.extra)
             click.echo(obj.meta_data)
+
+    def cmd_check(self):
+        self.cache.check()
 
     def _find_reachable_objects(self):
         reachable = set()
@@ -768,3 +782,8 @@ def dev():
 @dev.command('reachable')
 def cmd_reachable():
     App().cmd_reachable()
+
+
+@dev.command('check')
+def cmd_check():
+    App().cmd_check()
