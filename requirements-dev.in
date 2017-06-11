@@ -1,4 +1,5 @@
 bpython
+nose
 pip-review
 pip-tools
 pylint

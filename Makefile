@@ -1,4 +1,4 @@
-.PHONY: all clean publish
+.PHONY: all clean test publish
 
 VERSION=$(shell python -c 'import git_big; print(git_big.__version__)')
 
@@ -20,3 +20,6 @@ ${WHEEL}: setup.py git_big/*.py
 
 publish: ${WHEEL}
 	twine upload ${WHEEL}
+
+test:
+	nosetests
