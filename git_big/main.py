@@ -171,12 +171,18 @@ class Depot(object):
     def __init__(self, config, repo, repo_uuid):
         self.config = config.depot
         self.repo = repo
-        driver = get_driver(DriverType.STORAGE, self.config.driver)
-        self.service = driver(self.config.key, self.config.secret)
-        self.bucket = self.service.get_container(self.config.bucket)
+        self.__bucket = None
         self.index_path = os.path.join(config.cache_dir, 'index')
         self.index = set()
         self.refs_path = 'refs/%s' % repo_uuid
+
+    @property
+    def bucket(self):
+        if not self.__bucket:
+            driver = get_driver(DriverType.STORAGE, self.config.driver)
+            service = driver(self.config.key, self.config.secret)
+            self.__bucket = service.get_container(self.config.bucket)
+        return self.__bucket
 
     def _entry(self, entry):
         self._load_index()
