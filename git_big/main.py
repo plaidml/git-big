@@ -136,9 +136,9 @@ def make_executable(path):
     os.chmod(path, perms | stat.S_IXUSR | stat.S_IXGRP)
 
 
-class GitIgnore(object):
+class GitExclude(object):
     def __init__(self, repo):
-        self.gitignore_path = os.path.join(repo.working_dir, '.gitignore')
+        self.gitignore_path = os.path.join(repo.git_dir, 'info', 'exclude')
         self.dirty = False
         self.lines = []
 
@@ -154,13 +154,13 @@ class GitIgnore(object):
                 for line in self.lines:
                     file_.write(line + '\n')
 
-    def ignore(self, rel_path):
+    def add(self, rel_path):
         rule = '/' + rel_path
         if rule not in self.lines:
             self.lines.append(rule)
             self.dirty = True
 
-    def unignore(self, rel_path):
+    def remove(self, rel_path):
         rule = '/' + rel_path
         if rule in self.lines:
             self.lines.remove(rule)
@@ -372,7 +372,7 @@ class App(object):
             self.depot = None
         self.cache = Cache(self.config, self.depot)
         self.working = Working(self.repo, self.config, self.cache)
-        self.git_ignore = GitIgnore(self.repo)
+        self.git_exclude = GitExclude(self.repo)
 
     def cmd_init(self):
         self._repo_uuid()
@@ -410,39 +410,39 @@ class App(object):
         click.echo()
 
     def cmd_add(self, paths):
-        self.git_ignore.load()
+        self.git_exclude.load()
         for path in self._walk(paths):
             self._add_file(path)
         self._save_config()
-        self.git_ignore.save()
+        self.git_exclude.save()
 
     def cmd_remove(self, paths):
-        self.git_ignore.load()
+        self.git_exclude.load()
         for path in self._walk(paths):
             self._remove_file(path)
         self._save_config()
-        self.git_ignore.save()
+        self.git_exclude.save()
 
     def cmd_unlock(self, paths):
-        self.git_ignore.load()
+        self.git_exclude.load()
         for path in self._walk(paths):
             self._unlock_file(path)
         self._save_config()
-        self.git_ignore.save()
+        self.git_exclude.save()
 
     def cmd_copy(self, srcs, tgt):
-        self.git_ignore.load()
+        self.git_exclude.load()
         for src, tgt in self._get_src_tgt_pairs(srcs, tgt):
             self._copy_file(src, tgt)
         self._save_config()
-        self.git_ignore.save()
+        self.git_exclude.save()
 
     def cmd_move(self, srcs, tgt):
-        self.git_ignore.load()
+        self.git_exclude.load()
         for src, tgt in self._get_src_tgt_pairs(srcs, tgt):
             self._move_file(src, tgt)
         self._save_config()
-        self.git_ignore.save()
+        self.git_exclude.save()
 
     def cmd_push(self):
         for entry in self._entries():
@@ -561,7 +561,7 @@ class App(object):
         if not old_digest or old_digest != digest:
             click.echo(rel_path)
         lock_file(path)
-        self.git_ignore.ignore(rel_path)
+        self.git_exclude.add(rel_path)
         self.repo_config.files[rel_path] = digest
 
     def _remove_file(self, path):
@@ -569,7 +569,7 @@ class App(object):
             os.path.abspath(path), self.repo.working_dir)
         if os.path.exists(path):
             os.unlink(path)
-        self.git_ignore.unignore(rel_path)
+        self.git_exclude.remove(rel_path)
         if rel_path in self.repo_config.files:
             click.echo(rel_path)
             del self.repo_config.files[rel_path]
@@ -582,7 +582,7 @@ class App(object):
             shutil.copy2(path, tmp.name)
             shutil.move(tmp.name, path)
         unlock_file(path)
-        self.git_ignore.unignore(rel_path)
+        self.git_exclude.remove(rel_path)
         if rel_path in self.repo_config.files:
             del self.repo_config.files[rel_path]
 
@@ -611,7 +611,7 @@ class App(object):
             click.echo('Source not in index: %s' % src)
             return
         os.link(src, tgt)
-        self.git_ignore.ignore(rel_tgt)
+        self.git_exclude.add(rel_tgt)
         self.repo_config.files[rel_tgt] = self.repo_config.files[rel_src]
 
     def _move_file(self, src, tgt):
@@ -624,8 +624,8 @@ class App(object):
             click.echo('Source not in index: %s' % src)
             return
         os.rename(src, tgt)
-        self.git_ignore.unignore(rel_src)
-        self.git_ignore.ignore(rel_tgt)
+        self.git_exclude.remove(rel_src)
+        self.git_exclude.add(rel_tgt)
         self.repo_config.files[rel_tgt] = self.repo_config.files[rel_src]
         del self.repo_config.files[rel_src]
 
