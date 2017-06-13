@@ -138,17 +138,20 @@ class Config(RepoConfig):
         self.cache_dir = git_config.cache_dir or user_config.cache_dir
         self.objects_dir = os.path.join(self.cache_dir, 'objects')
         self.uuid = git_config.uuid
-        if user_config.depot.url:
-            self.depot = DepotConfig(**dict(user_config.depot))
+        self.files = repo_config.files
+
+        depot_config = DepotConfig(**dict(user_config.depot))
+        if git_config.depot_url:
+            depot_config.url = git_config.depot_url
+        if git_config.depot_key:
+            depot_config.key = git_config.depot_key
+        if git_config.depot_secret:
+            depot_config.secret = git_config.depot_secret
+
+        if depot_config.url:
+            self.depot = depot_config
         else:
             self.depot = None
-        if git_config.depot_url:
-            self.depot.url = git_config.depot_url
-        if git_config.depot_key:
-            self.depot.key = git_config.depot_key
-        if git_config.depot_secret:
-            self.depot.secret = git_config.depot_secret
-        self.files = repo_config.files
 
 
 class Entry(object):

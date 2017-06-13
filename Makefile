@@ -23,6 +23,7 @@ clean:
 	rm -f requirements*.txt
 	rm -rf build
 	rm -rf dist
+	find -name *.pyc -delete
 
 %.txt: %.in
 	pip-compile $<
