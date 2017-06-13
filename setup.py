@@ -19,7 +19,8 @@ import git_big
 
 setup(
     name='git-big',
-    description='git big file manager',
+    description=
+    'Git Big is a command line extension to Git for managing Write Once Read Many (WORM) files.',
     version=git_big.__version__,
     license='Apache 2.0',
     author='Vertex AI',
