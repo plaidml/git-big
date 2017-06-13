@@ -5,7 +5,7 @@ Git Big is a command line extension to Git for managing
 
 ## Requirements
 
-* A filesystem that supports hard-linking (Linux & MacOS, Windows is untested)
+* A filesystem that supports symbolic & hard linking (Linux & MacOS, Windows is untested)
 * Python 2.7+
 * (optional) An account with one of the 
   [storage providers](https://libcloud.readthedocs.io/en/latest/storage/supported_providers.html)
@@ -36,8 +36,7 @@ Its contents look something like:
     "version": 1,
     "cache_dir": "/home/user/.cache/git-big",
     "depot": {
-        "driver": "s3",
-        "bucket": "bucket_name",
+        "url": "s3://bucket_name/path",
         "key": "XXXX",
         "secret": "XXXX"
     }
@@ -78,17 +77,17 @@ $ git big init
 
 # Add a big file
 $ git big add bigfile.iso
+bigfile.iso
 
 # The file has been added to the index
 $ git big status
 On branch master
 
   Working
-    Linked
-      Cache
-        Depot
+    Cache
+      Depot
 
-[ W       ] bigfile.iso
+[ W C   ] 993328d6 bigfile.iso
 
 # A sha256 hash is generated and recorded in the index
 $ cat .gitbig
@@ -96,81 +95,72 @@ $ cat .gitbig
     "files": {
         "bigfile.iso": "993328d6ae3506d656f4d7ad3edf917a7d86f61ef9e01a0f177683b5961893b4"
     }, 
-    "version": 1, 
-    "tracking": {}
+    "version": 1
 }
 
-# Note that the bigfile is now read-only
+# Note that the big file is now a symlink
 $ ls -l bigfile.iso
--r--r--r-- 1 user user 8 Jun  9 13:14 bigfile.iso
+lrwxrwxrwx 1 user user 8 Jun  9 13:14 bigfile.iso -> .git/git-big/anchors/99/33/993328d6ae3506d656f4d7ad3edf917a7d86f61ef9e01a0f177683b5961893b4
 
-# git-big will automatically create a .gitignore rule
-$ cat .gitignore
-/bigfile.iso
+# And that the symlink points to a read-only file
+$ ls -l $(readlink bigfile.iso)
+-r--r--r-- 2 user user 8 Jun  9 13:39 .git/git-big/anchors/99/33/993328d6ae3506d656f4d7ad3edf917a7d86f61ef9e01a0f177683b5961893b4
 
-# Push any pending bigfiles to the cache and to the depot
+# Push any pending big files to the depot
 $ git big push
-Linking: bigfile.iso -> 993328d6ae3506d656f4d7ad3edf917a7d86f61ef9e01a0f177683b5961893b4
 Pushing object: 993328d6ae3506d656f4d7ad3edf917a7d86f61ef9e01a0f177683b5961893b4
 
-# We can see the bigfile has been cached and archived in the depot
+# We can see the big file has been archived in the depot
 $ git big status
 On branch master
 
   Working
-    Linked
-      Cache
-        Depot
+    Cache
+      Depot
 
-[ W L C D ] bigfile.iso
+[ W C D ] 993328d6 bigfile.iso
 
-# Now we can commit and push our changes to the git repository
-$ git add -A
+# Now we can commit our changes
 $ git ci -m "Add bigfile.iso"
-[master (root-commit) 7679004] Add bigfile.iso
- 2 files changed, 8 insertions(+)
+[master (root-commit) 93e6c96] Add bigfile.iso
+ 2 files changed, 7 insertions(+)
  create mode 100644 .gitbig
- create mode 100644 .gitignore
+ create mode 120000 bigfile.iso
+
+# And push them upstream
 $ git push origin master
 
 # Now let's clone this repository onto another machine
 $ git clone git@git-repo:repo.git
 $ cd repo
 
-# Initially, the bigfile will not exist in the working directory
-$ ls bigfile.iso
-ls: cannot access 'bigfile.iso': No such file or directory
-
-# But it does exist in the depot
+# Initially, the big file will only exist in the depot
 $ git big status
 On branch master
 
   Working
-    Linked
-      Cache
-        Depot
+    Cache
+      Depot
 
-[       D ] bigfile.iso
+[     D ] 993328d6 bigfile.iso
 
 # Let's pull it from the depot (caching it as we go)
 $ git big pull
 Pulling object: 993328d6ae3506d656f4d7ad3edf917a7d86f61ef9e01a0f177683b5961893b4
-Linking: 993328d6ae3506d656f4d7ad3edf917a7d86f61ef9e01a0f177683b5961893b4 -> bigfile.iso
 
-# Note that the file is read-only and has a reference count of 2 (the other ref is in the cache)
-$ ls -l bigfile.iso
--r--r--r-- 2 user user 8 Jun  9 13:39 bigfile.iso
+# Note that the symlink now points to a read-only file and has a reference count of 2 (the other ref is in the cache)
+$ ls -l $(readlink bigfile.iso)
+-r--r--r-- 2 user user 8 Jun 12 23:30 .git/git-big/anchors/99/33/993328d6ae3506d656f4d7ad3edf917a7d86f61ef9e01a0f177683b5961893b4
 
 # It's now ready to be used
 $ git big status
 On branch master
 
   Working
-    Linked
-      Cache
-        Depot
+    Cache
+      Depot
 
-[ W L C D ] bigfile.iso
+[ W C D ] 993328d6 bigfile.iso
 ```
 
 ## Reference

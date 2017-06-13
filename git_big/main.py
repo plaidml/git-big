@@ -1,3 +1,17 @@
+# Copyright (c) 2017 Vertex.AI
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from __future__ import print_function
 
 import getpass
@@ -8,7 +22,7 @@ import re
 import shutil
 import socket
 import stat
-import tempfile
+import urlparse
 import uuid
 from StringIO import StringIO
 
@@ -22,19 +36,49 @@ from . import __version__
 CTX_SETTINGS = dict(help_option_names=['-h', '--help'])
 BLOCKSIZE = 64 * 1024
 
+DRIVER_ALIASES = {
+    'gs': 'google_storage',
+}
+
 
 class DepotConfig(object):
     def __init__(self, **kwargs):
-        self.driver = kwargs.get('driver')
+        self.__url = None
+        self.__url_parts = None
+        self.url = kwargs.get('url')
         self.key = kwargs.get('key')
         self.secret = kwargs.get('secret')
-        self.bucket = kwargs.get('bucket')
 
     def __iter__(self):
-        yield 'driver', self.driver
+        yield 'url', self.url
         yield 'key', self.key
         yield 'secret', self.secret
-        yield 'bucket', self.bucket
+
+    @property
+    def url(self):
+        return self.__url
+
+    @url.setter
+    def url(self, value):
+        self.__url = value
+        if value:
+            self.__url_parts = urlparse.urlparse(value)
+
+    @property
+    def driver(self):
+        scheme = self.__url_parts.scheme
+        return DRIVER_ALIASES.get(scheme, scheme)
+
+    @property
+    def bucket(self):
+        return self.__url_parts.hostname
+
+    @property
+    def prefix(self):
+        return self.__url_parts.path
+
+    def make_path(self, *paths):
+        return '/'.join(paths)
 
 
 class UserConfig(object):
@@ -51,49 +95,101 @@ class UserConfig(object):
         yield 'depot', dict(self.depot)
 
 
-class RepoConfig(UserConfig):
+class RepoConfig(object):
     def __init__(self, **kwargs):
-        super(RepoConfig, self).__init__(**kwargs)
+        self.version = 1
         self.files = kwargs.get('files', {})
-        self.tracking = kwargs.get('tracking', {})
 
     def __iter__(self):
         yield 'version', self.version
-        if self.cache_dir != self.default_cache_dir:
-            yield 'cache_dir', self.cache_dir
-        if self.depot.driver:
-            yield 'depot', dict(self.depot)
         yield 'files', self.files
-        yield 'tracking', self.tracking
+
+
+class GitConfig(object):
+    section = 'git-big'
+    depot_section = 'git-big "depot"'
+
+    def __init__(self, repo):
+        self.repo = repo
+        reader = self.repo.config_reader()
+
+        if reader.has_option(self.section, 'uuid'):
+            self.uuid = reader.get_value(self.section, 'uuid')
+        else:
+            self.uuid = str(uuid.uuid4())
+
+        if reader.has_option(self.section, 'cache-dir'):
+            self.cache_dir = reader.get_value(self.section, 'cache-dir')
+        else:
+            self.cache_dir = None
+
+        self.depot_url = reader.get_value(self.depot_section, 'url', '')
+        self.depot_key = reader.get_value(self.depot_section, 'key', '')
+        self.depot_secret = reader.get_value(self.depot_section, 'secret', '')
+
+    def save(self):
+        with self.repo.config_writer() as writer:
+            writer.set_value(self.section, 'uuid', self.uuid)
 
 
 class Config(RepoConfig):
-    def __init__(self, user_config, repo_config):
+    def __init__(self, repo_config, git_config, user_config):
         super(Config, self).__init__()
-        self.cache_dir = repo_config.cache_dir or user_config.cache_dir
-        if repo_config.depot.driver:
-            self.depot = repo_config.depot
-        elif user_config.depot.driver:
-            self.depot = user_config.depot
+        self.cache_dir = git_config.cache_dir or user_config.cache_dir
+        self.objects_dir = os.path.join(self.cache_dir, 'objects')
+        self.uuid = git_config.uuid
+        if user_config.depot.url:
+            self.depot = DepotConfig(**dict(user_config.depot))
         else:
             self.depot = None
+        if git_config.depot_url:
+            self.depot.url = git_config.depot_url
+        if git_config.depot_key:
+            self.depot.key = git_config.depot_key
+        if git_config.depot_secret:
+            self.depot.secret = git_config.depot_secret
         self.files = repo_config.files
-        self.tracking = repo_config.tracking
 
 
 class Entry(object):
-    def __init__(self, rel_path, digest):
+    def __init__(self, config, repo, rel_path, digest):
         self.rel_path = rel_path
         self.digest = digest
-        self.working_path = None
-        self.working_inode = None
-        self.cache_path = None
-        self.cache_inode = None
+        self.working_path = os.path.join(repo.working_dir, self.rel_path)
+        self.anchor_path = os.path.join(repo.git_dir, 'git-big', 'anchors',
+                                        self.digest[:2], self.digest[2:4],
+                                        self.digest)
+        self.symlink_path = os.path.relpath(self.anchor_path,
+                                            os.path.dirname(self.working_path))
+        self.cache_path = os.path.join(config.objects_dir, self.digest[:2],
+                                       self.digest[2:4], self.digest)
+        if config.depot:
+            self.depot_path = config.depot.make_path('objects', self.digest)
+        else:
+            self.depot_path = None
         self.depot_object = None
-        self.in_working = False
-        self.is_linked = False
-        self.in_cache = False
         self.in_depot = False
+
+    @property
+    def in_cache(self):
+        return os.path.exists(self.cache_path)
+
+    @property
+    def in_anchors(self):
+        return os.path.exists(self.anchor_path)
+
+    @property
+    def is_link(self):
+        return os.path.islink(self.working_path)
+
+    @property
+    def in_working(self):
+        return os.path.exists(self.working_path)
+
+    @property
+    def is_linked(self):
+        return self.in_anchors and self.is_link and \
+            os.readlink(self.working_path) == self.symlink_path
 
 
 def compute_digest(path):
@@ -136,45 +232,46 @@ def make_executable(path):
     os.chmod(path, perms | stat.S_IXUSR | stat.S_IXGRP)
 
 
-class GitExclude(object):
-    def __init__(self, repo):
-        self.gitignore_path = os.path.join(repo.git_dir, 'info', 'exclude')
-        self.dirty = False
-        self.lines = []
+class DepotIndex(object):
+    def __init__(self, path):
+        self.__index = set()
+        self.path = path
 
-    def load(self):
-        if os.path.exists(self.gitignore_path):
-            with open(self.gitignore_path, 'r') as file_:
+    @property
+    def index(self):
+        self._load()
+        return self.__index
+
+    def has_digest(self, digest):
+        return digest in self.index
+
+    def add_digest(self, digest):
+        self.index.add(digest)
+        self._save()
+
+    def _load(self):
+        self.__index = set()
+        if os.path.exists(self.path):
+            with open(self.path, 'r') as file_:
                 for line in file_:
-                    self.lines.append(line.rstrip())
+                    self.__index.add(line.rstrip())
 
-    def save(self):
-        if self.dirty:
-            with open(self.gitignore_path, 'w') as file_:
-                for line in self.lines:
-                    file_.write(line + '\n')
-
-    def add(self, rel_path):
-        rule = '/' + rel_path
-        if rule not in self.lines:
-            self.lines.append(rule)
-            self.dirty = True
-
-    def remove(self, rel_path):
-        rule = '/' + rel_path
-        if rule in self.lines:
-            self.lines.remove(rule)
-            self.dirty = True
+    def _save(self):
+        dir_path = os.path.dirname(self.path)
+        if not os.path.exists(dir_path):
+            os.makedirs(dir_path)
+        with open(self.path, 'w') as file_:
+            for digest in self.__index:
+                file_.write(digest + '\n')
 
 
 class Depot(object):
-    def __init__(self, config, repo, repo_uuid):
+    def __init__(self, config, repo):
         self.config = config.depot
         self.repo = repo
         self.__bucket = None
-        self.index_path = os.path.join(config.cache_dir, 'index')
-        self.index = set()
-        self.refs_path = 'refs/%s' % repo_uuid
+        self.index = DepotIndex(os.path.join(config.cache_dir, 'index'))
+        self.refs_path = self.config.make_path('refs', config.uuid)
 
     @property
     def bucket(self):
@@ -185,33 +282,18 @@ class Depot(object):
         return self.__bucket
 
     def _entry(self, entry):
-        self._load_index()
-
-        entry.depot_path = 'objects/' + entry.digest
-
-        if entry.digest in self.index:
+        # use an index to prevent having to query the depot when we know
+        # for certain that the object exists in the bucket
+        if self.index.has_digest(entry.digest):
             entry.in_depot = True
             return
 
         try:
             entry.depot_object = self.bucket.get_object(entry.depot_path)
             entry.in_depot = True
-            self.index.add(entry.digest)
-            self._save_index()
+            self.index.add_digest(entry.digest)
         except ObjectDoesNotExistError:
             pass
-
-    def _load_index(self):
-        if not self.index and os.path.exists(self.index_path):
-            self.index = set()
-            with open(self.index_path, 'r') as index_file:
-                for line in index_file:
-                    self.index.add(line.rstrip())
-
-    def _save_index(self):
-        with open(self.index_path, 'w') as index_file:
-            for digest in self.index:
-                index_file.write(digest + '\n')
 
     def get_status(self, entry):
         self._entry(entry)
@@ -224,18 +306,19 @@ class Depot(object):
         click.echo('Pulling object: %s' % entry.digest)
         if not entry.depot_object:
             entry.depot_object = self.bucket.get_object(entry.depot_path)
+        cache_dir = os.path.dirname(entry.cache_path)
+        if not os.path.exists(cache_dir):
+            os.makedirs(cache_dir)
         entry.depot_object.download(entry.cache_path)
-        entry.in_cache = True
-        self.index.add(entry.digest)
-        self._save_index()
+        lock_file(entry.cache_path)
+        self.index.add_digest(entry.digest)
 
     def put(self, entry):
         self._entry(entry)
         if not entry.in_depot:
             click.echo('Pushing object: %s' % entry.digest)
             self.bucket.upload_object(entry.cache_path, entry.depot_path)
-            self.index.add(entry.digest)
-            self._save_index()
+            self.index.add_digest(entry.digest)
 
     def load_refs(self):
         refs = []
@@ -269,130 +352,39 @@ class Depot(object):
         self.bucket.delete_object(obj)
 
 
-class Cache(object):
-    def __init__(self, config, upstream):
-        self.config = config
-        self.upstream = upstream
-        self.cache_dir = self.config.cache_dir
-        self.objects_dir = os.path.join(self.cache_dir, 'objects')
-
-    def _entry(self, entry):
-        entry.cache_path = os.path.join(self.objects_dir, entry.digest[:2],
-                                        entry.digest[2:4], entry.digest)
-        entry.in_cache = os.path.exists(entry.cache_path)
-        if entry.in_cache:
-            entry.cache_inode = os.stat(entry.cache_path).st_ino
-            if entry.in_working and entry.cache_inode == entry.working_inode:
-                entry.is_linked = True
-
-    def get_status(self, entry):
-        self._entry(entry)
-        if self.upstream:
-            self.upstream.get_status(entry)
-        return entry
-
-    def get(self, entry):
-        self._entry(entry)
-        # if not here, get from upstream
-        if not entry.in_cache:
-            self.upstream.get(entry)
-            lock_file(entry.cache_path)
-
-    def put(self, entry):
-        self._entry(entry)
-        # add file to the cache
-        cache_dir = os.path.dirname(entry.cache_path)
-        if not os.path.exists(cache_dir):
-            os.makedirs(cache_dir)
-        if not entry.in_cache:
-            click.echo('Linking: %s -> %s' % (entry.rel_path, entry.digest))
-            os.link(entry.working_path, entry.cache_path)
-            lock_file(entry.cache_path)
-        elif entry.working_inode != entry.cache_inode:
-            click.echo('Re-linking: %s -> %s' % (entry.rel_path, entry.digest))
-            os.unlink(entry.working_path)
-            os.link(entry.cache_path, entry.working_path)
-        self.upstream.put(entry)
-
-    def check(self):
-        '''Do an integrity check of the local cache'''
-        for root, _, files in os.walk(self.objects_dir):
-            for file_ in files:
-                path = os.path.join(root, file_)
-                digest = compute_digest(path)
-                if file_ != digest:
-                    click.echo('Error: mismatched content.')
-                    click.echo('  Path: %s' % path)
-                    click.echo('  Hash: %s' % digest)
-
-
-class Working(object):
-    def __init__(self, repo, config, upstream):
-        self.repo = repo
-        self.config = config
-        self.upstream = upstream
-
-    def _entry(self, entry):
-        entry.working_path = os.path.join(self.repo.working_dir,
-                                          entry.rel_path)
-        entry.in_working = os.path.exists(entry.working_path)
-        if entry.in_working:
-            entry.working_inode = os.stat(entry.working_path).st_ino
-
-    def get_status(self, entry):
-        self._entry(entry)
-        self.upstream.get_status(entry)
-
-    def get(self, entry):
-        self._entry(entry)
-        self.upstream.get(entry)
-        if not entry.in_cache:
-            return  # we failed to find this object in the cache or the depot
-        if not entry.in_working:
-            click.echo('Linking: %s -> %s' % (entry.digest, entry.rel_path))
-            entry_dir = os.path.dirname(entry.working_path)
-            if not os.path.exists(entry_dir):
-                os.makedirs(entry_dir)
-            os.link(entry.cache_path, entry.working_path)
-        elif entry.working_inode != entry.cache_inode:
-            click.echo('Re-linking: %s -> %s' % (entry.digest, entry.rel_path))
-            os.unlink(entry.working_path)
-            os.link(entry.cache_path, entry.working_path)
-
-    def put(self, entry):
-        self._entry(entry)
-        self.upstream.put(entry)
-
-
 class App(object):
     def __init__(self):
         self.repo = git.Repo(search_parent_directories=True)
-        self.user_config_path = os.path.expanduser('~/.gitbig')
-        self.repo_config_path = os.path.join(self.repo.working_dir, '.gitbig')
 
+        # Load user configuration, creating anew if none exists
+        self.user_config_path = os.path.expanduser('~/.gitbig')
         if os.path.exists(self.user_config_path):
             with open(self.user_config_path, 'r') as file_:
                 self.user_config = UserConfig(**json.load(file_))
         else:
             self.user_config = UserConfig()
 
+        # Load repo configuration, creating anew if none exists
+        self.repo_config_path = os.path.join(self.repo.working_dir, '.gitbig')
         if os.path.exists(self.repo_config_path):
             with open(self.repo_config_path, 'r') as file_:
                 self.repo_config = self._load_config(file_)
         else:
             self.repo_config = RepoConfig()
 
-        self.config = Config(self.user_config, self.repo_config)
+        # Load git configuration
+        self.git_config = GitConfig(self.repo)
+
+        # Combined view of overall configuration
+        self.config = Config(self.repo_config, self.git_config,
+                             self.user_config)
+
         if self.config.depot:
-            self.depot = Depot(self.config, self.repo, self._repo_uuid())
+            self.depot = Depot(self.config, self.repo)
         else:
             self.depot = None
-        self.cache = Cache(self.config, self.depot)
-        self.working = Working(self.repo, self.config, self.cache)
-        self.git_exclude = GitExclude(self.repo)
 
     def cmd_init(self):
-        self._repo_uuid()
         self._save_config()
         self._install_hooks()
 
@@ -412,66 +404,87 @@ class App(object):
         click.echo('On branch %s' % self.repo.active_branch.name)
         click.echo()
         click.echo('  Working')
-        click.echo('    Linked')
-        click.echo('      Cache')
-        click.echo('        Depot')
+        click.echo('    Cache')
+        click.echo('      Depot')
         click.echo()
         for entry in self._entries():
-            self.working.get_status(entry)
-            w_bit = entry.in_working and 'W' or ' '
+            if self.depot:
+                self.depot.get_status(entry)
+            if entry.is_linked:
+                w_bit = 'W'
+            elif entry.in_working:
+                w_bit = '*'
+            else:
+                w_bit = ' '
             c_bit = entry.in_cache and 'C' or ' '
-            l_bit = entry.is_linked and 'L' or ' '
             d_bit = entry.in_depot and 'D' or ' '
-            click.echo('[ %s %s %s %s ] %s' % (w_bit, l_bit, c_bit, d_bit,
-                                               entry.rel_path))
+            click.echo('[ %s %s %s ] %s %s' %
+                       (w_bit, c_bit, d_bit, entry.digest[:8], entry.rel_path))
         click.echo()
 
     def cmd_add(self, paths):
-        self.git_exclude.load()
         for path in self._walk(paths):
             self._add_file(path)
         self._save_config()
-        self.git_exclude.save()
 
     def cmd_remove(self, paths):
-        self.git_exclude.load()
         for path in self._walk(paths):
             self._remove_file(path)
         self._save_config()
-        self.git_exclude.save()
 
     def cmd_unlock(self, paths):
-        self.git_exclude.load()
         for path in self._walk(paths):
             self._unlock_file(path)
         self._save_config()
-        self.git_exclude.save()
 
     def cmd_copy(self, srcs, tgt):
-        self.git_exclude.load()
         for src, tgt in self._get_src_tgt_pairs(srcs, tgt):
             self._copy_file(src, tgt)
         self._save_config()
-        self.git_exclude.save()
 
     def cmd_move(self, srcs, tgt):
-        self.git_exclude.load()
         for src, tgt in self._get_src_tgt_pairs(srcs, tgt):
             self._move_file(src, tgt)
         self._save_config()
-        self.git_exclude.save()
 
     def cmd_push(self):
+        if not self.depot:
+            click.echo('A depot must be configured before pushing.')
+            return
         for entry in self._entries():
-            self.working.put(entry)
+            self.depot.put(entry)
         self.depot.save_refs(self._find_reachable_objects())
 
     def cmd_pull(self):
         for entry in self._entries():
-            self.working.get(entry)
+            if not entry.in_cache and self.depot:
+                self.depot.get(entry)
+            if entry.in_cache:
+                if not entry.in_anchors:
+                    anchor_dir = os.path.dirname(entry.anchor_path)
+                    if not os.path.exists(anchor_dir):
+                        os.makedirs(anchor_dir)
+                    os.link(entry.cache_path, entry.anchor_path)
+
+                if not entry.in_working:
+                    click.echo('Linking: %s -> %s' % (entry.digest,
+                                                      entry.rel_path))
+                    entry_dir = os.path.dirname(entry.working_path)
+                    if not os.path.exists(entry_dir):
+                        os.makedirs(entry_dir)
+                    os.symlink(entry.symlink_path, entry.working_path)
+                elif not entry.is_link:
+                    click.echo('Pull aborted, dirty file detected: "%s"' %
+                               entry.rel_path)
+                    raise SystemExit(1)
+            else:
+                click.echo('Missing object for file: %s' % entry.rel_path)
         self.depot.save_refs(self._find_reachable_objects())
 
     def cmd_drop(self):
+        if not self.depot:
+            click.echo('A depot must be configured.')
+            return
         self.depot.delete_refs()
 
     def cmd_reachable(self):
@@ -483,7 +496,15 @@ class App(object):
             click.echo(obj.meta_data)
 
     def cmd_check(self):
-        self.cache.check()
+        '''Do an integrity check of the local cache'''
+        for root, _, files in os.walk(self.config.objects_dir):
+            for file_ in files:
+                path = os.path.join(root, file_)
+                digest = compute_digest(path)
+                if file_ != digest:
+                    click.echo('Error: mismatched content.')
+                    click.echo('  Path: %s' % path)
+                    click.echo('  Hash: %s' % digest)
 
     def _find_reachable_objects(self):
         reachable = set()
@@ -509,24 +530,21 @@ class App(object):
         return RepoConfig(**json.load(file_))
 
     def _save_config(self):
+        self.git_config.save()
+
         with open(self.user_config_path, 'w') as file_:
             json.dump(dict(self.user_config), file_, indent=4)
             file_.write('\n')
 
-        with open(self.repo_config_path, 'w') as file_:
-            json.dump(dict(self.repo_config), file_, indent=4)
-            file_.write('\n')
-
-    def _repo_uuid(self):
-        config_section = 'git-big'
-        option_name = 'uuid'
-        reader = self.repo.config_reader()
-        if reader.has_section(config_section):
-            return reader.get_value(config_section, option_name)
-        with self.repo.config_writer() as writer:
-            repo_uuid = str(uuid.uuid4())
-            writer.set_value(config_section, option_name, repo_uuid)
-            return repo_uuid
+        if self.repo_config.files:
+            with open(self.repo_config_path, 'w') as file_:
+                json.dump(dict(self.repo_config), file_, indent=4)
+                file_.write('\n')
+            self.repo.index.add([self.repo_config_path])
+        else:
+            if os.path.exists(self.repo_config_path):
+                os.unlink(self.repo_config_path)
+                self.repo.index.remove([self.repo_config_path])
 
     def _install_hooks(self):
         self._install_hook('pre-push', 2)
@@ -557,14 +575,9 @@ class App(object):
 
     def _entries(self):
         for rel_path, digest in self.config.files.iteritems():
-            yield Entry(rel_path, digest)
+            yield Entry(self.config, self.repo, rel_path, digest)
 
     def _walk(self, paths):
-        for path in self._inner_walk(paths):
-            if not os.path.islink(path):
-                yield path
-
-    def _inner_walk(self, paths):
         for path in paths:
             if os.path.isdir(path):
                 for root, _, files in os.walk(path):
@@ -574,14 +587,33 @@ class App(object):
                 yield path
 
     def _add_file(self, path):
+        if os.path.islink(path):
+            return
+
         rel_path = os.path.relpath(
             os.path.abspath(path), self.repo.working_dir)
         digest = compute_digest(path)
-        old_digest = self.repo_config.files.get(rel_path)
-        if not old_digest or old_digest != digest:
-            click.echo(rel_path)
-        lock_file(path)
-        self.git_exclude.add(rel_path)
+        click.echo(rel_path)
+        entry = Entry(self.config, self.repo, rel_path, digest)
+
+        if not entry.in_cache:
+            cache_dir = os.path.dirname(entry.cache_path)
+            if not os.path.exists(cache_dir):
+                os.makedirs(cache_dir)
+            os.rename(entry.working_path, entry.cache_path)
+            lock_file(entry.cache_path)
+        else:
+            os.unlink(entry.working_path)
+
+        if not entry.in_anchors:
+            anchor_dir = os.path.dirname(entry.anchor_path)
+            if not os.path.exists(anchor_dir):
+                os.makedirs(anchor_dir)
+            os.link(entry.cache_path, entry.anchor_path)
+
+        os.symlink(entry.symlink_path, entry.working_path)
+        self.repo.index.add([entry.working_path])
+
         self.repo_config.files[rel_path] = digest
 
     def _remove_file(self, path):
@@ -589,20 +621,30 @@ class App(object):
             os.path.abspath(path), self.repo.working_dir)
         if os.path.exists(path):
             os.unlink(path)
-        self.git_exclude.remove(rel_path)
+        digest = self.repo_config.files.get(rel_path)
+        if not digest:
+            return
+        entry = Entry(self.config, self.repo, rel_path, digest)
+        self.repo.index.remove([entry.working_path])
         if rel_path in self.repo_config.files:
             click.echo(rel_path)
             del self.repo_config.files[rel_path]
 
     def _unlock_file(self, path):
+        if not os.path.islink(path):
+            return
         rel_path = os.path.relpath(
             os.path.abspath(path), self.repo.working_dir)
-        # split the hardlink into two separate copies
-        with tempfile.TemporaryFile() as tmp:
-            shutil.copy2(path, tmp.name)
-            shutil.move(tmp.name, path)
-        unlock_file(path)
-        self.git_exclude.remove(rel_path)
+        digest = self.repo_config.files.get(rel_path)
+        if not digest:
+            return
+        entry = Entry(self.config, self.repo, rel_path, digest)
+
+        self.repo.index.remove([entry.working_path])
+        os.unlink(entry.working_path)
+        shutil.copy2(entry.cache_path, entry.working_path)
+        unlock_file(entry.working_path)
+
         if rel_path in self.repo_config.files:
             del self.repo_config.files[rel_path]
 
@@ -626,13 +668,16 @@ class App(object):
         if rel_tgt.startswith('..') or rel_tgt.startswith('/'):
             click.echo('Destination must be inside repository: %s' % tgt)
             return
+
         rel_src = os.path.relpath(os.path.abspath(src), self.repo.working_dir)
-        if rel_src not in self.repo_config.files:
+        digest = self.repo_config.files.get(rel_src)
+        if not digest:
             click.echo('Source not in index: %s' % src)
-            return
-        os.link(src, tgt)
-        self.git_exclude.add(rel_tgt)
-        self.repo_config.files[rel_tgt] = self.repo_config.files[rel_src]
+
+        entry = Entry(self.config, self.repo, rel_tgt, digest)
+        os.symlink(entry.symlink_path, entry.working_path)
+        self.repo.index.add([entry.working_path])
+        self.repo_config.files[rel_tgt] = digest
 
     def _move_file(self, src, tgt):
         rel_src = os.path.relpath(os.path.abspath(src), self.repo.working_dir)
@@ -640,13 +685,19 @@ class App(object):
         if rel_tgt.startswith('..') or rel_tgt.startswith('/'):
             click.echo('Destination must be inside repository: %s' % tgt)
             return
-        if rel_src not in self.repo_config.files:
+
+        rel_src = os.path.relpath(os.path.abspath(src), self.repo.working_dir)
+        digest = self.repo_config.files.get(rel_src)
+        if not digest:
             click.echo('Source not in index: %s' % src)
-            return
-        os.rename(src, tgt)
-        self.git_exclude.remove(rel_src)
-        self.git_exclude.add(rel_tgt)
-        self.repo_config.files[rel_tgt] = self.repo_config.files[rel_src]
+
+        src_entry = Entry(self.config, self.repo, rel_src, digest)
+        tgt_entry = Entry(self.config, self.repo, rel_tgt, digest)
+        os.symlink(tgt_entry.symlink_path, tgt_entry.working_path)
+        os.unlink(src_entry.working_path)
+        self.repo.index.add([tgt_entry.working_path])
+        self.repo.index.remove([src_entry.working_path])
+        self.repo_config.files[rel_tgt] = digest
         del self.repo_config.files[rel_src]
 
 
@@ -793,3 +844,14 @@ def cmd_reachable():
 @dev.command('check')
 def cmd_check():
     App().cmd_check()
+
+
+@cli.group('filter')
+def cmd_filter():
+    pass
+
+
+@cmd_filter.command('process')
+def cmd_process():
+    import git_big.filter
+    git_big.filter.cmd_process()

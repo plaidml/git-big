@@ -1,7 +1,8 @@
 bpython
-nose
+lockfile
 pip-review
 pip-tools
 pylint
+pytest
 twine
 yapf
