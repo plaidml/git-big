@@ -121,7 +121,7 @@ On branch master
 [ W C D ] 993328d6 bigfile.iso
 
 # Now we can commit our changes
-$ git ci -m "Add bigfile.iso"
+$ git commit -m "Add bigfile.iso"
 [master (root-commit) 93e6c96] Add bigfile.iso
  2 files changed, 7 insertions(+)
  create mode 100644 .gitbig
