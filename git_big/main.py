@@ -159,7 +159,7 @@ class Entry(object):
         self.rel_path = rel_path
         self.digest = digest
         self.working_path = os.path.join(repo.working_dir, self.rel_path)
-        self.anchor_path = os.path.join(repo.git_dir, 'git-big', 'anchors',
+        self.anchor_path = os.path.join(repo.working_dir, '.gitbig-anchors',
                                         self.digest[:2], self.digest[2:4],
                                         self.digest)
         self.symlink_path = os.path.relpath(self.anchor_path,
@@ -548,6 +548,18 @@ class App(object):
             if os.path.exists(self.repo_config_path):
                 os.unlink(self.repo_config_path)
                 self.repo.index.remove([self.repo_config_path])
+
+        rule = '/.gitbig-anchors'
+        lines = []
+        exclude_path = os.path.join(self.repo.git_dir, 'info', 'exclude')
+        with open(exclude_path, 'r') as file_:
+            for line in file_:
+                lines.append(line.rstrip())
+        if rule not in lines:
+            lines.append(rule)
+        with open(exclude_path, 'w') as file_:
+            for line in lines:
+                file_.write(line + '\n')
 
     def _install_hooks(self):
         self._install_hook('pre-push', 2)

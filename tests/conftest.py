@@ -58,8 +58,8 @@ def env(tmpdir):
 
 
 def check_locked_file(env, file_, digest):
-    anchors_path = os.path.join(env.repo_dir, '.git', 'git-big', 'anchors',
-                                digest[:2], digest[2:4], digest)
+    anchors_path = os.path.join(env.repo_dir, '.gitbig-anchors', digest[:2],
+                                digest[2:4], digest)
     symlink_path = os.path.relpath(anchors_path, os.path.dirname(file_))
     cache_path = os.path.join(env.cache_dir, 'objects', digest[:2],
                               digest[2:4], digest)
