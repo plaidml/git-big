@@ -51,10 +51,9 @@ See the
 [supported providers matrix](https://libcloud.readthedocs.io/en/latest/storage/supported_providers.html)
 for specifics on configuring a particular provider.
 
-A configuration file also exists in the root of the Git repository.
+A `.gitbig` index file also exists in the root of the Git repository.
 This file should be checked into your repository.
-Repository configuration overrides any user configuration.
-Here's an example of the `.gitbig` repository configuration file.
+Here's an example of such a file.
 
 ```
 {
@@ -100,11 +99,11 @@ $ cat .gitbig
 
 # Note that the big file is now a symlink
 $ ls -l bigfile.iso
-lrwxrwxrwx 1 user user 8 Jun  9 13:14 bigfile.iso -> .git/git-big/anchors/99/33/993328d6ae3506d656f4d7ad3edf917a7d86f61ef9e01a0f177683b5961893b4
+lrwxrwxrwx 1 user user 8 Jun  9 13:14 bigfile.iso -> .gitbig-anchors/99/33/993328d6ae3506d656f4d7ad3edf917a7d86f61ef9e01a0f177683b5961893b4
 
 # And that the symlink points to a read-only file
 $ ls -l $(readlink bigfile.iso)
--r--r--r-- 2 user user 8 Jun  9 13:39 .git/git-big/anchors/99/33/993328d6ae3506d656f4d7ad3edf917a7d86f61ef9e01a0f177683b5961893b4
+-r--r--r-- 2 user user 8 Jun  9 13:39 .gitbig-anchors/99/33/993328d6ae3506d656f4d7ad3edf917a7d86f61ef9e01a0f177683b5961893b4
 
 # Push any pending big files to the depot
 $ git big push
@@ -150,7 +149,7 @@ Pulling object: 993328d6ae3506d656f4d7ad3edf917a7d86f61ef9e01a0f177683b5961893b4
 
 # Note that the symlink now points to a read-only file and has a reference count of 2 (the other ref is in the cache)
 $ ls -l $(readlink bigfile.iso)
--r--r--r-- 2 user user 8 Jun 12 23:30 .git/git-big/anchors/99/33/993328d6ae3506d656f4d7ad3edf917a7d86f61ef9e01a0f177683b5961893b4
+-r--r--r-- 2 user user 8 Jun 12 23:30 .gitbig-anchors/99/33/993328d6ae3506d656f4d7ad3edf917a7d86f61ef9e01a0f177683b5961893b4
 
 # It's now ready to be used
 $ git big status
@@ -175,6 +174,7 @@ Options:
 
 Commands:
   add      Add big files
+  clone    Clone a repository with big files
   cp       Copy big files
   help     Show this message and exit.
   init     Initialize big files

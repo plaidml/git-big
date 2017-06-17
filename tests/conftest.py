@@ -57,8 +57,10 @@ def env(tmpdir):
     yield context
 
 
-def check_locked_file(env, file_, digest):
-    anchors_path = os.path.join(env.repo_dir, '.gitbig-anchors', digest[:2],
+def check_locked_file(env, file_, digest, root_dir=None):
+    if not root_dir:
+        root_dir = env.repo_dir
+    anchors_path = os.path.join(root_dir, '.gitbig-anchors', digest[:2],
                                 digest[2:4], digest)
     symlink_path = os.path.relpath(anchors_path, os.path.dirname(file_))
     cache_path = os.path.join(env.cache_dir, 'objects', digest[:2],

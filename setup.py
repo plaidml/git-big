@@ -29,7 +29,6 @@ setup(
     install_requires=[
         'apache-libcloud',
         'click',
-        'gitpython',
     ],
     classifiers=[
         "Development Status :: 4 - Beta",

@@ -22,23 +22,52 @@ import re
 import shutil
 import socket
 import stat
+import subprocess
 import urlparse
 import uuid
 from StringIO import StringIO
 
 import click
-import git
 from libcloud import DriverType, get_driver
 from libcloud.storage.types import ObjectDoesNotExistError
 
 from . import __version__
 
-CTX_SETTINGS = dict(help_option_names=['-h', '--help'])
 BLOCKSIZE = 64 * 1024
+CTX_SETTINGS = dict(help_option_names=['-h', '--help'])
+DEV_NULL = open(os.devnull, 'w')
 
 DRIVER_ALIASES = {
     'gs': 'google_storage',
 }
+
+
+def git(*args):
+    return subprocess.check_output(['git'] + map(str, args), stderr=DEV_NULL)
+
+
+class GitIndex(object):
+    def add(self, paths):
+        for path in paths:
+            git('add', path)
+
+    def remove(self, paths):
+        for path in paths:
+            git('rm', path)
+
+
+class GitRepository(object):
+    def __init__(self):
+        try:
+            self.git_dir = git('rev-parse', '--git-common-dir').rstrip()
+        except subprocess.CalledProcessError:
+            raise click.ClickException('git or git repository not found')
+        self.working_dir = git('rev-parse', '--show-toplevel').rstrip()
+        self.index = GitIndex()
+
+    @property
+    def active_branch(self):
+        return git('rev-parse', '--abbrev-ref', 'HEAD').rstrip()
 
 
 class DepotConfig(object):
@@ -78,7 +107,7 @@ class DepotConfig(object):
         return self.__url_parts.path
 
     def make_path(self, *paths):
-        return '/'.join(paths)
+        return '/'.join(map(str, paths))
 
 
 class UserConfig(object):
@@ -105,31 +134,23 @@ class RepoConfig(object):
         yield 'files', self.files
 
 
+def git_config_get(name, default=None):
+    try:
+        return git('config', name).rstrip()
+    except:  # pylint: disable=W0702
+        return default
+
+
 class GitConfig(object):
-    section = 'git-big'
-    depot_section = 'git-big "depot"'
-
-    def __init__(self, repo):
-        self.repo = repo
-        reader = self.repo.config_reader()
-
-        if reader.has_option(self.section, 'uuid'):
-            self.uuid = reader.get_value(self.section, 'uuid')
-        else:
-            self.uuid = str(uuid.uuid4())
-
-        if reader.has_option(self.section, 'cache-dir'):
-            self.cache_dir = reader.get_value(self.section, 'cache-dir')
-        else:
-            self.cache_dir = None
-
-        self.depot_url = reader.get_value(self.depot_section, 'url', '')
-        self.depot_key = reader.get_value(self.depot_section, 'key', '')
-        self.depot_secret = reader.get_value(self.depot_section, 'secret', '')
+    def __init__(self):
+        self.uuid = git_config_get('git-big.uuid', uuid.uuid4())
+        self.cache_dir = git_config_get('git-big.cache-dir')
+        self.depot_url = git_config_get('git-big.depot.url')
+        self.depot_key = git_config_get('git-big.depot.key')
+        self.depot_secret = git_config_get('git-big.depot.secret')
 
     def save(self):
-        with self.repo.config_writer() as writer:
-            writer.set_value(self.section, 'uuid', self.uuid)
+        git('config', 'git-big.uuid', self.uuid)
 
 
 class Config(RepoConfig):
@@ -357,7 +378,7 @@ class Depot(object):
 
 class App(object):
     def __init__(self):
-        self.repo = git.Repo(search_parent_directories=True)
+        self.repo = GitRepository()
 
         # Load user configuration, creating anew if none exists
         self.user_config_path = os.path.expanduser('~/.gitbig')
@@ -376,7 +397,7 @@ class App(object):
             self.repo_config = RepoConfig()
 
         # Load git configuration
-        self.git_config = GitConfig(self.repo)
+        self.git_config = GitConfig()
 
         # Combined view of overall configuration
         self.config = Config(self.repo_config, self.git_config,
@@ -404,7 +425,7 @@ class App(object):
         self._call_hook_chain('post-merge', flag)
 
     def cmd_status(self):
-        click.echo('On branch %s' % self.repo.active_branch.name)
+        click.echo('On branch %s' % self.repo.active_branch)
         click.echo()
         click.echo('  Working')
         click.echo('    Cache')
@@ -511,22 +532,17 @@ class App(object):
 
     def _find_reachable_objects(self):
         reachable = set()
-        configs_seen = set()
-        refs = self.repo.heads + self.repo.tags
-        for ref in refs:
-            tree = self.repo.tree(ref)
-            try:
-                blob = tree.join('.gitbig')
-            except KeyError:
-                continue
-            if blob.hexsha in configs_seen:
-                continue
-            # click.echo('%s: %s' % (ref, blob.hexsha))
-            config = self._load_config(blob.data_stream)
-            for digest in config.files.itervalues():
-                # click.echo('\t%s: %s' % (rel_path, digest))
+        objects = set()
+        rev_list = git('rev-list', '--objects', '--all', '--', '.gitbig')
+        for line in rev_list.splitlines():
+            parts = line.split()
+            if len(parts) > 1 and parts[1] == '.gitbig':
+                objects.add(parts[0])
+        for obj in objects:
+            raw_index = git('show', obj)
+            index = RepoConfig(**json.loads(raw_index))
+            for digest in index.files.itervalues():
                 reachable.add(digest)
-            configs_seen.add(blob.hexsha)
         return reachable
 
     def _load_config(self, file_):
@@ -655,8 +671,8 @@ class App(object):
             return
         entry = Entry(self.config, self.repo, rel_path, digest)
 
-        self.repo.index.remove([entry.working_path])
         os.unlink(entry.working_path)
+        self.repo.index.remove([entry.working_path])
         shutil.copy2(entry.cache_path, entry.working_path)
         unlock_file(entry.working_path)
 
