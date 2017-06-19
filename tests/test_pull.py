@@ -14,6 +14,7 @@
 
 from __future__ import print_function
 
+import os
 from os.path import islink, join
 from subprocess import check_call, check_output
 
@@ -51,6 +52,15 @@ def test_fresh_clone(env):
     assert islink(join(clone_dir, 'foo'))
 
 
+def check_anchors(env, expected):
+    anchors_dir = join(env.repo_dir, '.gitbig-anchors')
+    actual = []
+    for _, _, files in os.walk(anchors_dir):
+        for file_ in files:
+            actual.append(file_)
+    assert actual == expected
+
+
 def test_checkout(env):
     '''Switch between branches, hooks should pull and update links'''
     # add a file
@@ -79,14 +89,17 @@ def test_checkout(env):
     # switch back to 1st branch
     check_output(['git', 'checkout', 'master'])
     check_locked_file(env, file_, HELLO_DIGEST)
+    check_anchors(env, [HELLO_DIGEST])
 
     # switch back to master branch
     check_output(['git', 'checkout', 'changed'])
     check_locked_file(env, file_, WORLD_DIGEST)
+    check_anchors(env, [WORLD_DIGEST])
 
     # switch back to 1st branch
     check_output(['git', 'checkout', 'master'])
     check_locked_file(env, file_, HELLO_DIGEST)
+    check_anchors(env, [HELLO_DIGEST])
 
 
 def test_checkout_diff_types(env):

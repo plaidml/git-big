@@ -154,7 +154,7 @@ class GitConfig(object):
 
 
 class Config(RepoConfig):
-    def __init__(self, repo_config, git_config, user_config):
+    def __init__(self, repo_config, git_config, user_config, working_dir):
         super(Config, self).__init__()
         self.cache_dir = git_config.cache_dir or user_config.cache_dir
         self.objects_dir = os.path.join(self.cache_dir, 'objects')
@@ -174,15 +174,17 @@ class Config(RepoConfig):
         else:
             self.depot = None
 
+        self.working_dir = working_dir
+        self.anchors_dir = os.path.join(self.working_dir, '.gitbig-anchors')
+
 
 class Entry(object):
-    def __init__(self, config, repo, rel_path, digest):
+    def __init__(self, config, rel_path, digest):
         self.rel_path = rel_path
         self.digest = digest
-        self.working_path = os.path.join(repo.working_dir, self.rel_path)
-        self.anchor_path = os.path.join(repo.working_dir, '.gitbig-anchors',
-                                        self.digest[:2], self.digest[2:4],
-                                        self.digest)
+        self.working_path = os.path.join(config.working_dir, self.rel_path)
+        self.anchor_path = os.path.join(config.anchors_dir, self.digest[:2],
+                                        self.digest[2:4], self.digest)
         self.symlink_path = os.path.relpath(self.anchor_path,
                                             os.path.dirname(self.working_path))
         self.cache_path = os.path.join(config.objects_dir, self.digest[:2],
@@ -401,7 +403,7 @@ class App(object):
 
         # Combined view of overall configuration
         self.config = Config(self.repo_config, self.git_config,
-                             self.user_config)
+                             self.user_config, self.repo.working_dir)
 
         if self.config.depot:
             self.depot = Depot(self.config, self.repo)
@@ -480,16 +482,22 @@ class App(object):
         self.depot.save_refs(self._find_reachable_objects())
 
     def cmd_pull(self):
+        # clear the anchors on each pull
+        if os.path.exists(self.config.anchors_dir):
+            shutil.rmtree(self.config.anchors_dir)
+        # now go thru the index and populate all the anchors
         for entry in self._entries():
+            # grab a copy from the depot if it exists
             if not entry.in_cache and self.depot:
                 self.depot.get(entry)
             if entry.in_cache:
+                # add hardlink from the anchor to the cache
                 if not entry.in_anchors:
                     anchor_dir = os.path.dirname(entry.anchor_path)
                     if not os.path.exists(anchor_dir):
                         os.makedirs(anchor_dir)
                     os.link(entry.cache_path, entry.anchor_path)
-
+                # add a symlink from the working path to the anchor
                 if not entry.in_working:
                     click.echo('Linking: %s -> %s' % (entry.digest,
                                                       entry.rel_path))
@@ -606,7 +614,7 @@ class App(object):
 
     def _entries(self):
         for rel_path, digest in self.config.files.iteritems():
-            yield Entry(self.config, self.repo, rel_path, digest)
+            yield Entry(self.config, rel_path, digest)
 
     def _walk(self, paths):
         for path in paths:
@@ -625,7 +633,7 @@ class App(object):
             os.path.abspath(path), self.repo.working_dir)
         digest = compute_digest(path)
         click.echo(rel_path)
-        entry = Entry(self.config, self.repo, rel_path, digest)
+        entry = Entry(self.config, rel_path, digest)
 
         if not entry.in_cache:
             cache_dir = os.path.dirname(entry.cache_path)
@@ -655,11 +663,10 @@ class App(object):
         digest = self.repo_config.files.get(rel_path)
         if not digest:
             return
-        entry = Entry(self.config, self.repo, rel_path, digest)
+        entry = Entry(self.config, rel_path, digest)
         self.repo.index.remove([entry.working_path])
-        if rel_path in self.repo_config.files:
-            click.echo(rel_path)
-            del self.repo_config.files[rel_path]
+        click.echo(rel_path)
+        del self.repo_config.files[rel_path]
 
     def _unlock_file(self, path):
         if not os.path.islink(path):
@@ -669,15 +676,12 @@ class App(object):
         digest = self.repo_config.files.get(rel_path)
         if not digest:
             return
-        entry = Entry(self.config, self.repo, rel_path, digest)
-
+        entry = Entry(self.config, rel_path, digest)
         os.unlink(entry.working_path)
         self.repo.index.remove([entry.working_path])
         shutil.copy2(entry.cache_path, entry.working_path)
         unlock_file(entry.working_path)
-
-        if rel_path in self.repo_config.files:
-            del self.repo_config.files[rel_path]
+        del self.repo_config.files[rel_path]
 
     def _get_src_tgt_pairs(self, srcs, tgt):
         if len(srcs) > 1:
@@ -705,7 +709,7 @@ class App(object):
         if not digest:
             click.echo('Source not in index: %s' % src)
 
-        entry = Entry(self.config, self.repo, rel_tgt, digest)
+        entry = Entry(self.config, rel_tgt, digest)
         os.symlink(entry.symlink_path, entry.working_path)
         self.repo.index.add([entry.working_path])
         self.repo_config.files[rel_tgt] = digest
@@ -722,8 +726,8 @@ class App(object):
         if not digest:
             click.echo('Source not in index: %s' % src)
 
-        src_entry = Entry(self.config, self.repo, rel_src, digest)
-        tgt_entry = Entry(self.config, self.repo, rel_tgt, digest)
+        src_entry = Entry(self.config, rel_src, digest)
+        tgt_entry = Entry(self.config, rel_tgt, digest)
         os.symlink(tgt_entry.symlink_path, tgt_entry.working_path)
         os.unlink(src_entry.working_path)
         self.repo.index.add([tgt_entry.working_path])
