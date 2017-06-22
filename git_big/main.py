@@ -59,7 +59,12 @@ class GitIndex(object):
 class GitRepository(object):
     def __init__(self):
         try:
-            self.git_dir = git('rev-parse', '--git-common-dir').rstrip()
+            # HACK because common-dir doesn't seem to work in subdirs of the main repo!?
+            # Should be: self.git_dir = git('rev-parse', '--git-common-dir').rstrip()
+            self.git_dir = git('rev-parse', '--git-dir').rstrip()
+            subdirs = os.path.normpath(self.git_dir).split(os.path.sep)
+            if len(subdirs) >= 2 and subdirs[-2] == 'worktrees':
+                self.git_dir = git('rev-parse', '--git-common-dir').rstrip()
         except subprocess.CalledProcessError:
             raise click.ClickException('git or git repository not found')
         self.working_dir = git('rev-parse', '--show-toplevel').rstrip()
