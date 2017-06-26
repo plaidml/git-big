@@ -23,6 +23,8 @@ import shutil
 import socket
 import stat
 import subprocess
+import tempfile
+import tqdm
 import urlparse
 import uuid
 from StringIO import StringIO
@@ -340,7 +342,20 @@ class Depot(object):
         cache_dir = os.path.dirname(entry.cache_path)
         if not os.path.exists(cache_dir):
             os.makedirs(cache_dir)
-        entry.depot_object.download(entry.cache_path)
+        # Make a temp location for download until we verify it's good
+        tmpfile = tempfile.NamedTemporaryFile(delete=False)
+        size = long(entry.depot_object.size)
+        chunk_size = 1024*1024
+        # Kick off the download and track with a progress bar
+        stream = self.bucket.download_object_as_stream(entry.depot_object, chunk_size=chunk_size)
+        with tqdm.tqdm(total=size, unit='bytes', unit_scale=True) as bar:
+            for data in stream:
+                tmpfile.write(data)
+                bar.update(len(data))
+        # Finalize and rename
+        tmpfile.close()
+        os.rename(tmpfile.name, entry.cache_path)
+        # Lock and add to cache
         lock_file(entry.cache_path)
         self.index.add_digest(entry.digest)
 
