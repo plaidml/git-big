@@ -12,4 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-__version__ = '0.3.7'
+from __future__ import print_function
+
+import os
+
+# pylint: disable=unused-argument,W0621
+
+
+def test_bare(bare_env):
+    '''Custom merge driver should not be installed for bare repositories.'''
+
+    assert not os.path.exists('.gitattribute')

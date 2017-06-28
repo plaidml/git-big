@@ -72,6 +72,8 @@ class GitRepository(object):
             raise click.ClickException('git or git repository not found')
         self.working_dir = git('rev-parse', '--show-toplevel').rstrip()
         self.index = GitIndex()
+        self.is_bare = git('rev-parse',
+                           '--is-bare-repository').rstrip() == 'true'
 
     @property
     def active_branch(self):
@@ -439,7 +441,8 @@ class App(object):
     def cmd_init(self):
         self._save_config()
         self._install_hooks()
-        self._install_merger()
+        if not self.repo.is_bare:
+            self._install_merger()
 
     def cmd_hooks_pre_push(self, remote, url):
         self.cmd_push()
