@@ -14,6 +14,7 @@
 
 from __future__ import print_function
 
+import collections
 import getpass
 import hashlib
 import json
@@ -24,12 +25,12 @@ import socket
 import stat
 import subprocess
 import tempfile
-import tqdm
 import urlparse
 import uuid
 from StringIO import StringIO
 
 import click
+import tqdm
 from libcloud import DriverType, get_driver
 from libcloud.storage.types import ObjectDoesNotExistError
 
@@ -138,7 +139,10 @@ class RepoConfig(object):
 
     def __iter__(self):
         yield 'version', self.version
-        yield 'files', self.files
+        yield 'files', collections.OrderedDict(sorted(self.files.items()))
+
+    def merge(self, other):
+        self.files.update(other.files)
 
 
 def git_config_get(name, default=None):
@@ -158,6 +162,7 @@ class GitConfig(object):
 
     def save(self):
         git('config', 'git-big.uuid', self.uuid)
+        git('config', 'merge.git-big.driver', 'git big merge-driver %O %A %B')
 
 
 class Config(RepoConfig):
@@ -345,9 +350,10 @@ class Depot(object):
         # Make a temp location for download until we verify it's good
         tmpfile = tempfile.NamedTemporaryFile(delete=False)
         size = long(entry.depot_object.size)
-        chunk_size = 1024*1024
+        chunk_size = 1024 * 1024
         # Kick off the download and track with a progress bar
-        stream = self.bucket.download_object_as_stream(entry.depot_object, chunk_size=chunk_size)
+        stream = self.bucket.download_object_as_stream(
+            entry.depot_object, chunk_size=chunk_size)
         with tqdm.tqdm(total=size, unit='bytes', unit_scale=True) as bar:
             for data in stream:
                 tmpfile.write(data)
@@ -433,6 +439,7 @@ class App(object):
     def cmd_init(self):
         self._save_config()
         self._install_hooks()
+        self._install_merger()
 
     def cmd_hooks_pre_push(self, remote, url):
         self.cmd_push()
@@ -558,6 +565,16 @@ class App(object):
                     click.echo('  Path: %s' % path)
                     click.echo('  Hash: %s' % digest)
 
+    def cmd_custom_merge(self, ancestor_path, current_path, other_path):  # pylint: disable=W0613
+        with open(current_path, 'r') as file_:
+            current = self._load_config(file_)
+        with open(other_path, 'r') as file_:
+            other = self._load_config(file_)
+        current.merge(other)
+        with open(current_path, 'w') as file_:
+            json.dump(dict(current), file_, indent=4)
+            file_.write('\n')
+
     def _find_reachable_objects(self):
         reachable = set()
         objects = set()
@@ -593,22 +610,35 @@ class App(object):
                 os.unlink(self.repo_config_path)
                 self.repo.index.remove([self.repo_config_path])
 
-        rule = '/.gitbig-anchors'
-        lines = []
         exclude_path = os.path.join(self.repo.git_dir, 'info', 'exclude')
-        with open(exclude_path, 'r') as file_:
-            for line in file_:
-                lines.append(line.rstrip())
-        if rule not in lines:
-            lines.append(rule)
-        with open(exclude_path, 'w') as file_:
+        self._ensure_line(exclude_path, '/.gitbig-anchors')
+
+    def _ensure_line(self, path, to_add):
+        changed = False
+        lines = []
+        if os.path.exists(path):
+            with open(path, 'r') as file_:
+                for line in file_:
+                    lines.append(line.rstrip())
+        if to_add not in lines:
+            lines.append(to_add)
+            changed = True
+        with open(path, 'w') as file_:
             for line in lines:
                 file_.write(line + '\n')
+        return changed
 
     def _install_hooks(self):
         self._install_hook('pre-push', 2)
         self._install_hook('post-checkout', 3)
         self._install_hook('post-merge', 1)
+
+    def _install_merger(self):
+        gitattrs = '.gitattributes'
+        gitattrs_path = os.path.join(self.repo.working_dir, gitattrs)
+        changed = self._ensure_line(gitattrs_path, '.gitbig merge=git-big')
+        if changed:
+            self.repo.index.add([gitattrs])
 
     def _install_hook(self, hook, nargs):
         args = ' '.join(['$%s' % x for x in range(1, nargs + 1)])
@@ -910,3 +940,11 @@ def cmd_filter():
 def cmd_process():
     import git_big.filter
     git_big.filter.cmd_process()
+
+
+@cli.command('merge-driver')
+@click.argument('ancestor', default='default')
+@click.argument('current', default='default')
+@click.argument('other', default='default')
+def cmd_custom_merge(ancestor, current, other):
+    App().cmd_custom_merge(ancestor, current, other)

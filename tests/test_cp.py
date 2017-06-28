@@ -30,7 +30,7 @@ def test_copy(env):
     dest = join(env.repo_dir, 'bar')
 
     # git should report that the repo is dirty
-    check_status(['?? foo'])
+    check_status(['A  .gitattributes', '?? foo'])
 
     # add the file to git-big
     check_output(['git', 'big', 'add', source])
@@ -40,7 +40,7 @@ def test_copy(env):
 
     # git should track the source and dest
     check_call(['git', 'status'])
-    check_status(['A  .gitbig', 'A  bar', 'A  foo'])
+    check_status(['A  .gitattributes', 'A  .gitbig', 'A  bar', 'A  foo'])
 
     # we should have two links to the same object
     check_locked_file(env, source, HELLO_DIGEST)
@@ -55,7 +55,7 @@ def test_copy_after_commit(env):
     dest = join(env.repo_dir, 'bar')
 
     # git should report that the repo is dirty
-    check_status(['?? foo'])
+    check_status(['A  .gitattributes', '?? foo'])
 
     # add the file to git-big
     check_output(['git', 'big', 'add', source])
