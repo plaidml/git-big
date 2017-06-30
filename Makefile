@@ -34,6 +34,8 @@ ${WHEEL}: setup.py git_big/*.py
 	python $< bdist_wheel
 
 publish: ${WHEEL}
+	git tag ${VERSION}
+	git push --tag
 	twine upload ${WHEEL}
 
 test:
