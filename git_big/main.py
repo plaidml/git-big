@@ -312,6 +312,9 @@ class Depot(object):
         self.__bucket = None
         self.index = DepotIndex(os.path.join(config.cache_dir, 'index'))
         self.refs_path = self.config.make_path('refs', config.uuid)
+        self.tmp_dir = os.path.join(config.cache_dir, 'tmp')
+        if not os.path.exists(self.tmp_dir):
+            os.makedirs(self.tmp_dir)
 
     @property
     def bucket(self):
@@ -350,7 +353,7 @@ class Depot(object):
         if not os.path.exists(cache_dir):
             os.makedirs(cache_dir)
         # Make a temp location for download until we verify it's good
-        tmpfile = tempfile.NamedTemporaryFile(delete=False)
+        tmpfile = tempfile.NamedTemporaryFile(delete=False, dir=self.tmp_dir)
         size = long(entry.depot_object.size)
         chunk_size = 1024 * 1024
         # Kick off the download and track with a progress bar
