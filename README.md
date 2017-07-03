@@ -28,16 +28,18 @@ Next, go to the directory root of your Git repository and initialize `git-big`:
 git big init
 ```
 
-A user configuration file is located at `$HOME/.gitbig`.
-Its contents look something like:
+Along with preparing your repository for use with git big, this will set up a depot in your local file system located at <pathname>.
 
+A user configuration file is located at `$HOME/.gitbig`.
+Its initial contents look like 
 ```
 {
     "version": 1,
     "cache_dir": "/home/user/.cache/git-big",
     "depot": {
-        "url": "s3://bucket_name/path",
-        "key": "XXXX",
+        "url": "local://bucket",
+	[//] : # (Will we need a key and secret if we're using a local depot?) 
+        "key": "$HOME/.cache/git-big/depot",
         "secret": "XXXX"
     }
 }
@@ -50,6 +52,20 @@ object storage from a variety of providers.
 See the
 [supported providers matrix](https://libcloud.readthedocs.io/en/latest/storage/supported_providers.html)
 for specifics on configuring a particular provider.
+
+You will need to update this information in your `$HOME/.gitbig` file to look something like this
+
+```
+{
+    "version": 1,
+    "cache_dir": "/home/user/.cache/git-big",
+    "depot": {
+        "url": "s3://bucket_name/path",
+        "key": "XXXX",
+        "secret": "XXXX"
+    }
+}
+```
 
 A `.gitbig` index file also exists in the root of the Git repository.
 This file should be checked into your repository.

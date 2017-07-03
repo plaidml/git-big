@@ -26,6 +26,7 @@ from conftest import (HELLO_CONTENT, HELLO_DIGEST, WORLD_CONTENT, WORLD_DIGEST,
 def make_origin(env):
     # add a file
     file_ = join(env.repo_dir, 'foo')
+
     open(file_, 'w').write(HELLO_CONTENT)
     check_output(['git', 'big', 'add', file_])
 
