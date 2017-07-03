@@ -12,31 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-.PHONY: all clean test publish
+from __future__ import print_function
 
-VERSION=$(shell python -c 'import git_big; print(git_big.__version__)')
+import os
 
-WHEEL=dist/git_big-${VERSION}-py2-none-any.whl
+# pylint: disable=unused-argument,W0621
 
-all: requirements-dev.txt ${WHEEL}
-clean:
-	rm -f requirements*.txt
-	rm -rf build
-	rm -rf dist
-	find -name *.pyc -delete
 
-%.txt: %.in
-	pip-compile $<
+def test_bare(bare_env):
+    '''Custom merge driver should not be installed for bare repositories.'''
 
-requirements-dev.txt: requirements-dev.in
-
-${WHEEL}: setup.py git_big/*.py
-	python $< bdist_wheel
-
-publish: ${WHEEL}
-	git tag ${VERSION}
-	git push --tag
-	twine upload ${WHEEL}
-
-test:
-	pytest
+    assert not os.path.exists('.gitattribute')

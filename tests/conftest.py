@@ -57,6 +57,15 @@ def env(tmpdir):
     yield context
 
 
+@pytest.fixture
+def bare_env(tmpdir):
+    context = Context(tmpdir)
+    check_output(['git', 'init', '--bare', context.repo_dir])
+    os.chdir(context.repo_dir)
+    context.git_big_init()
+    yield context
+
+
 def check_locked_file(env, file_, digest, root_dir=None):
     if not root_dir:
         root_dir = env.repo_dir

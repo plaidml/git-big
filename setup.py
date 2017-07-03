@@ -27,8 +27,9 @@ setup(
     url='https://github.com/vertexai/git-big',
     packages=['git_big'],
     install_requires=[
-        'apache-libcloud',
+        'apache-libcloud==1.5.0',
         'click',
+        'tqdm',
     ],
     classifiers=[
         "Development Status :: 4 - Beta",

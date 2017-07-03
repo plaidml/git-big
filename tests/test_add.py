@@ -39,9 +39,10 @@ def test_add(env):
     open(file_, 'w').write(HELLO_CONTENT)
 
     # git should report that the repo is dirty
-    check_status(['?? foo'])
+    check_status(['A  .gitattributes', '?? foo'])
 
-    add_file(env, file_, HELLO_DIGEST, ['A  .gitbig', 'A  foo'])
+    add_file(env, file_, HELLO_DIGEST,
+             ['A  .gitattributes', 'A  .gitbig', 'A  foo'])
 
 
 def test_add_same_multi(env):
@@ -50,10 +51,12 @@ def test_add_same_multi(env):
     open(file_, 'w').write(HELLO_CONTENT)
 
     # git should report that the repo is dirty
-    check_status(['?? foo'])
+    check_status(['A  .gitattributes', '?? foo'])
 
-    add_file(env, file_, HELLO_DIGEST, ['A  .gitbig', 'A  foo'])
-    add_file(env, file_, HELLO_DIGEST, ['A  .gitbig', 'A  foo'])
+    add_file(env, file_, HELLO_DIGEST,
+             ['A  .gitattributes', 'A  .gitbig', 'A  foo'])
+    add_file(env, file_, HELLO_DIGEST,
+             ['A  .gitattributes', 'A  .gitbig', 'A  foo'])
 
 
 def test_add_same_content(env):
@@ -64,10 +67,12 @@ def test_add_same_content(env):
     open(file2, 'w').write(HELLO_CONTENT)
 
     # git should report that the repo is dirty
-    check_status(['?? bar', '?? foo'])
+    check_status(['A  .gitattributes', '?? bar', '?? foo'])
 
-    add_file(env, file1, HELLO_DIGEST, ['A  .gitbig', 'A  foo', '?? bar'])
-    add_file(env, file2, HELLO_DIGEST, ['A  .gitbig', 'A  bar', 'A  foo'])
+    add_file(env, file1, HELLO_DIGEST,
+             ['A  .gitattributes', 'A  .gitbig', 'A  foo', '?? bar'])
+    add_file(env, file2, HELLO_DIGEST,
+             ['A  .gitattributes', 'A  .gitbig', 'A  bar', 'A  foo'])
 
 
 def test_add_changed(env):
@@ -76,14 +81,16 @@ def test_add_changed(env):
     open(file_, 'w').write(HELLO_CONTENT)
 
     # git should report that the repo is dirty
-    check_status(['?? foo'])
+    check_status(['A  .gitattributes', '?? foo'])
 
-    add_file(env, file_, HELLO_DIGEST, ['A  .gitbig', 'A  foo'])
+    add_file(env, file_, HELLO_DIGEST,
+             ['A  .gitattributes', 'A  .gitbig', 'A  foo'])
 
     os.unlink(file_)
     open(file_, 'w').write(WORLD_CONTENT)
 
-    add_file(env, file_, WORLD_DIGEST, ['A  .gitbig', 'A  foo'])
+    add_file(env, file_, WORLD_DIGEST,
+             ['A  .gitattributes', 'A  .gitbig', 'A  foo'])
 
 
 def test_add_directory(env):
@@ -98,13 +105,14 @@ def test_add_directory(env):
     open(file2, 'w').write(WORLD_CONTENT)
 
     # git should report that the repo is dirty
-    check_status(['?? dir/'])
+    check_status(['A  .gitattributes', '?? dir/'])
 
     # add the directory to git-big
     check_output(['git', 'big', 'add', 'dir'])
 
     # git should now ignore the new files
-    check_status(['A  .gitbig', 'A  dir/dir/foo', 'A  dir/foo'])
+    check_status(
+        ['A  .gitattributes', 'A  .gitbig', 'A  dir/dir/foo', 'A  dir/foo'])
 
     check_locked_file(env, file1, HELLO_DIGEST)
     check_locked_file(env, file2, WORLD_DIGEST)

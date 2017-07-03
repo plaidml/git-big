@@ -30,7 +30,7 @@ def test_move(env):
     dest = join(env.repo_dir, 'bar')
 
     # git should report that the repo is dirty
-    check_status(['?? foo'])
+    check_status(['A  .gitattributes', '?? foo'])
 
     # add the file to git-big
     check_output(['git', 'big', 'add', source])
@@ -40,7 +40,7 @@ def test_move(env):
 
     # git should track the dest
     check_call(['git', 'status'])
-    check_status(['A  .gitbig', 'A  bar'])
+    check_status(['A  .gitattributes', 'A  .gitbig', 'A  bar'])
 
     # the file should now be moved
     assert not exists(source)
@@ -55,7 +55,7 @@ def test_move_after_commit(env):
     dest = join(env.repo_dir, 'bar')
 
     # git should report that the repo is dirty
-    check_status(['?? foo'])
+    check_status(['A  .gitattributes', '?? foo'])
 
     # add the file to git-big
     check_output(['git', 'big', 'add', source])

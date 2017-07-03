@@ -27,20 +27,20 @@ def test_unlock(env):
     open(file_, 'w').write(HELLO_CONTENT)
 
     # git should report that the repo is dirty
-    check_status(['?? foo'])
+    check_status(['A  .gitattributes', '?? foo'])
 
     # add the file to git-big
     check_output(['git', 'big', 'add', file_])
 
     # git should now track the new file
-    check_status(['A  .gitbig', 'A  foo'])
+    check_status(['A  .gitattributes', 'A  .gitbig', 'A  foo'])
 
     # unlock the file
     check_output(['git', 'big', 'unlock', file_])
 
     # git should report that the file is untracked
     check_call(['git', 'status'])
-    check_status(['?? foo'])
+    check_status(['A  .gitattributes', '?? foo'])
 
     # we should have a normal file
     assert not islink(file_)
@@ -58,21 +58,21 @@ def test_unlock_one_of_two(env):
     open(file2, 'w').write(HELLO_CONTENT)
 
     # git should report that the repo is dirty
-    check_status(['?? bar', '?? foo'])
+    check_status(['A  .gitattributes', '?? bar', '?? foo'])
 
     # add the files to git-big
     check_output(['git', 'big', 'add', file1])
     check_output(['git', 'big', 'add', file2])
 
     # git should now track the new files
-    check_status(['A  .gitbig', 'A  bar', 'A  foo'])
+    check_status(['A  .gitattributes', 'A  .gitbig', 'A  bar', 'A  foo'])
 
     # unlock the file
     check_output(['git', 'big', 'unlock', file1])
 
     # git should report that file1 is untracked but file2 is still tracked
     check_call(['git', 'status'])
-    check_status(['A  .gitbig', 'A  bar', '?? foo'])
+    check_status(['A  .gitattributes', 'A  .gitbig', 'A  bar', '?? foo'])
 
     # we should have a normal file and a linked file
     assert not islink(file1)
@@ -94,7 +94,7 @@ def test_unlock_after_commit(env):
     open(file2, 'w').write(HELLO_CONTENT)
 
     # git should report that the repo is dirty
-    check_status(['?? bar', '?? foo'])
+    check_status(['A  .gitattributes', '?? bar', '?? foo'])
 
     # add the files to git-big
     check_output(['git', 'big', 'add', file1])

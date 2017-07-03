@@ -27,7 +27,7 @@ def test_remove(env):
     open(file_, 'w').write(HELLO_CONTENT)
 
     # git should report that the repo is dirty
-    check_status(['?? foo'])
+    check_status(['A  .gitattributes', '?? foo'])
 
     # add the file to git-big
     check_output(['git', 'big', 'add', file_])
@@ -36,7 +36,7 @@ def test_remove(env):
     check_output(['git', 'big', 'rm', file_])
 
     # git should not report that there is an untracked file
-    check_status([])
+    check_status(['A  .gitattributes'])
 
     # file should be gone
     assert not exists(file_)
@@ -48,7 +48,7 @@ def test_remove_after_commit(env):
     open(file_, 'w').write(HELLO_CONTENT)
 
     # git should report that the repo is dirty
-    check_status(['?? foo'])
+    check_status(['A  .gitattributes', '?? foo'])
 
     # add the file to git-big
     check_output(['git', 'big', 'add', file_])
