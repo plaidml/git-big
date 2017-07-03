@@ -23,6 +23,8 @@ import shutil
 import socket
 import stat
 import subprocess
+import tempfile
+import tqdm
 import urlparse
 import uuid
 from StringIO import StringIO
@@ -43,6 +45,7 @@ DRIVER_ALIASES = {
 
 
 def git(*args):
+
     return subprocess.check_output(['git'] + map(str, args), stderr=DEV_NULL)
 
 
@@ -59,7 +62,12 @@ class GitIndex(object):
 class GitRepository(object):
     def __init__(self):
         try:
-            self.git_dir = git('rev-parse', '--git-common-dir').rstrip()
+            # HACK because common-dir doesn't seem to work in subdirs of the main repo!?
+            # Should be: self.git_dir = git('rev-parse', '--git-common-dir').rstrip()
+            self.git_dir = git('rev-parse', '--git-dir').rstrip()
+            subdirs = os.path.normpath(self.git_dir).split(os.path.sep)
+            if len(subdirs) >= 2 and subdirs[-2] == 'worktrees':
+                self.git_dir = git('rev-parse', '--git-common-dir').rstrip()
         except subprocess.CalledProcessError:
             raise click.ClickException('git or git repository not found')
         self.working_dir = git('rev-parse', '--show-toplevel').rstrip()
@@ -220,12 +228,21 @@ class Entry(object):
 
 def compute_digest(path):
     algorithm = hashlib.sha256()
-    with open(path, 'rb') as file_:
-        while True:
-            buf = file_.read(BLOCKSIZE)
-            if not buf:
-                break
-            algorithm.update(buf)
+    size = os.path.getsize(path)
+
+    def getBytes():
+        with open(path, 'rb') as file_:
+            while True:
+                buf = file_.read(BLOCKSIZE)
+                if not buf:
+                    break
+                algorithm.update(buf)
+                yield buf
+
+    with tqdm.tqdm(total=size, unit='bytes', unit_scale=True) as bar:
+        for data in getBytes():
+            bar.update(len(data))
+
     return algorithm.hexdigest()
 
 
@@ -335,16 +352,72 @@ class Depot(object):
         cache_dir = os.path.dirname(entry.cache_path)
         if not os.path.exists(cache_dir):
             os.makedirs(cache_dir)
-        entry.depot_object.download(entry.cache_path)
+
+        # Make a temp location for download until we verify it's good
+        tmpfile = tempfile.NamedTemporaryFile(delete=False)
+        size = long(entry.depot_object.size)
+        chunk_size = 1024 * 1024
+        # Kick off the download and track with a progress bar
+        stream = self.bucket.download_object_as_stream(entry.depot_object, chunk_size=chunk_size)
+        with tqdm.tqdm(total=size, unit='bytes', unit_scale=True) as bar:
+            for data in stream:
+                tmpfile.write(data)
+                bar.update(len(data))
+        # Finalize and rename
+        tmpfile.close()
+        os.rename(tmpfile.name, entry.cache_path)
+        # Lock and add to cache
         lock_file(entry.cache_path)
         self.index.add_digest(entry.digest)
 
     def put(self, entry):
+
+
         self._entry(entry)
         if not entry.in_depot:
             click.echo('Pushing object: %s' % entry.digest)
-            self.bucket.upload_object(entry.cache_path, entry.depot_path)
+
+            chunk_size = 1024 * 1024
+            size = os.path.getsize(entry.cache_path)
+
+            fileOpen = open(entry.cache_path, 'rb')
+
+            #file read to control size of chunks uploaded so they can be tracked
+            def getBytes():
+                with fileOpen as f:
+                    while True:
+                        chunk = f.read(chunk_size)
+                        if chunk:
+                            for data in chunk:
+                                yield data
+                        else:
+                            break
+
+            #progress bar starts, uploads via stream chunk by chunk
+            with tqdm.tqdm(total=size, unit='bytes', unit_scale=True) as bar:
+                for data in getBytes():
+                    bar.update(len(data))
+                    self.bucket.upload_object_via_stream(iterator=data, object_name=entry.depot_path)
+
             self.index.add_digest(entry.digest)
+
+
+    """
+    entry.depot_object = self.bucket.get_object(entry.depot_path)
+    self.bucket.upload_object_via_stream(entry.cache_path, entry.depot_path)
+    self.index.add_digest(entry.digest)
+    # Make a temp location for download until we verify it's good
+    tmpfile = tempfile.NamedTemporaryFile(delete=False)
+    size = long(entry.depot_object.size)
+    chunk_size = 1024 * 1024
+    # Kick off the upload and track with a progress bar
+    
+    stream = self.bucket.upload_object_via_stream(iterator=, entry.depot_object, chunk_size=chunk_size)
+    with tqdm.tqdm(total=size, unit='bytes', unit_scale=True) as bar:
+        for data in stream:
+            tmpfile.write(data)
+            bar.update(len(data))
+    """
 
     def load_refs(self):
         refs = []
@@ -355,7 +428,7 @@ class Depot(object):
         stream = obj.as_stream()
         for line in stream:
             refs.append(line.rstrip())
-        return (obj, refs)
+        return (obj,refs)
 
     def save_refs(self, refs):
         extra = {
@@ -687,7 +760,7 @@ class App(object):
         if len(srcs) > 1:
             if not os.path.isdir(tgt):
                 click.echo(
-                    'Destination must be a directoy when specifying multiple sources'
+                    'Destination must be a directory when specifying multiple sources'
                 )
                 return
             for src in srcs:
@@ -788,21 +861,36 @@ def cmd_status():
 @cli.command('add')
 @click.argument('paths', nargs=-1, type=click.Path(exists=True))
 def cmd_add(paths):
-    '''Add big files'''
+    '''Add big files.
+    This command gives you the option of inputting one or more paths. If a
+    single file path is given, it will add your file to the index. If a
+     directory path is given, all files within the directory will be
+     recursively added to the index.
+    '''
     App().cmd_add(paths)
 
 
 @cli.command('rm')
 @click.argument('paths', nargs=-1, type=click.Path())
 def cmd_remove(paths):
-    '''Remove big files'''
+    '''Remove big files.
+    This command gives you the option of inputting one or more paths. If a
+    single file path is given, it will remove your file to the index. If a
+     directory path is given, all files within the directory will be
+     recursively removed to the index.
+    '''
     App().cmd_remove(paths)
 
 
 @cli.command('unlock')
 @click.argument('paths', nargs=-1, type=click.Path(exists=True))
 def cmd_unlock(paths):
-    '''Unlock big files'''
+    '''Unlock big files.
+    When adding a large binary file to your directory, it will be set to
+    read only mode to prevent from accidental overwrites or deletions. In order
+    to edit a WORM file, it will need to be, unlocked, removed, edited and then
+    pushed to your git repository.
+    '''
     App().cmd_unlock(paths)
 
 
@@ -810,7 +898,11 @@ def cmd_unlock(paths):
 @click.argument('sources', nargs=-1, type=click.Path(exists=True))
 @click.argument('dest', nargs=1, type=click.Path())
 def cmd_move(sources, dest):
-    '''Move big files'''
+    '''Move big files.
+    Moves or renames a file, a directory or a symlink in the same
+    way that git mv would usually work. The index will be updated with
+    the new changes made but changes must be committed.
+    '''
     App().cmd_move(sources, dest)
 
 
@@ -818,19 +910,34 @@ def cmd_move(sources, dest):
 @click.argument('sources', nargs=-1, type=click.Path(exists=True))
 @click.argument('dest', nargs=1, type=click.Path())
 def cmd_copy(sources, dest):
-    '''Copy big files'''
+    '''Copy big files
+
+
+
+
+    '''
     App().cmd_copy(sources, dest)
 
 
 @cli.command('push')
 def cmd_push():
-    '''Push big files'''
+    '''Push big files
+
+
+
+
+    '''
     App().cmd_push()
 
 
 @cli.command('pull')
 def cmd_pull():
-    '''Pull big files'''
+    '''Pull big files
+
+
+
+
+    '''
     App().cmd_pull()
 
 
@@ -890,3 +997,4 @@ def cmd_filter():
 def cmd_process():
     import git_big.filter
     git_big.filter.cmd_process()
+
