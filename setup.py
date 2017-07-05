@@ -28,8 +28,9 @@ setup(
     packages=['git_big'],
     install_requires=[
         'apache-libcloud==1.5.0',
+        'boto',
         'click',
-        'tqdm',
+        'progressbar2',
     ],
     classifiers=[
         "Development Status :: 4 - Beta",

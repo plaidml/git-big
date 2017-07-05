@@ -24,25 +24,16 @@ import shutil
 import socket
 import stat
 import subprocess
-import tempfile
-import urlparse
 import uuid
-from StringIO import StringIO
 
 import click
-import tqdm
-from libcloud import DriverType, get_driver
-from libcloud.storage.types import ObjectDoesNotExistError
 
+import git_big.storage
 from . import __version__
 
-BLOCKSIZE = 64 * 1024
+BLOCKSIZE = 1024 * 1024
 CTX_SETTINGS = dict(help_option_names=['-h', '--help'])
 DEV_NULL = open(os.devnull, 'w')
-
-DRIVER_ALIASES = {
-    'gs': 'google_storage',
-}
 
 
 def git(*args):
@@ -82,8 +73,6 @@ class GitRepository(object):
 
 class DepotConfig(object):
     def __init__(self, **kwargs):
-        self.__url = None
-        self.__url_parts = None
         self.url = kwargs.get('url')
         self.key = kwargs.get('key')
         self.secret = kwargs.get('secret')
@@ -92,29 +81,6 @@ class DepotConfig(object):
         yield 'url', self.url
         yield 'key', self.key
         yield 'secret', self.secret
-
-    @property
-    def url(self):
-        return self.__url
-
-    @url.setter
-    def url(self, value):
-        self.__url = value
-        if value:
-            self.__url_parts = urlparse.urlparse(value)
-
-    @property
-    def driver(self):
-        scheme = self.__url_parts.scheme
-        return DRIVER_ALIASES.get(scheme, scheme)
-
-    @property
-    def bucket(self):
-        return self.__url_parts.hostname
-
-    @property
-    def prefix(self):
-        return self.__url_parts.path
 
     def make_path(self, *paths):
         return '/'.join(map(str, paths))
@@ -207,7 +173,6 @@ class Entry(object):
             self.depot_path = config.depot.make_path('objects', self.digest)
         else:
             self.depot_path = None
-        self.depot_object = None
         self.in_depot = False
 
     @property
@@ -309,20 +274,12 @@ class Depot(object):
     def __init__(self, config, repo):
         self.config = config.depot
         self.repo = repo
-        self.__bucket = None
+        self.__storage = git_big.storage.get_driver(self.config)
         self.index = DepotIndex(os.path.join(config.cache_dir, 'index'))
         self.refs_path = self.config.make_path('refs', config.uuid)
         self.tmp_dir = os.path.join(config.cache_dir, 'tmp')
         if not os.path.exists(self.tmp_dir):
             os.makedirs(self.tmp_dir)
-
-    @property
-    def bucket(self):
-        if not self.__bucket:
-            driver = get_driver(DriverType.STORAGE, self.config.driver)
-            service = driver(self.config.key, self.config.secret)
-            self.__bucket = service.get_container(self.config.bucket)
-        return self.__bucket
 
     def _entry(self, entry):
         # use an index to prevent having to query the depot when we know
@@ -331,12 +288,9 @@ class Depot(object):
             entry.in_depot = True
             return
 
-        try:
-            entry.depot_object = self.bucket.get_object(entry.depot_path)
+        if self.__storage.has_object(entry.depot_path):
             entry.in_depot = True
             self.index.add_digest(entry.digest)
-        except ObjectDoesNotExistError:
-            pass
 
     def get_status(self, entry):
         self._entry(entry)
@@ -346,26 +300,15 @@ class Depot(object):
         if not entry.in_depot:
             click.echo('Object missing from depot: %s' % entry.digest)
             return
-        click.echo('Pulling object: %s' % entry.digest)
-        if not entry.depot_object:
-            entry.depot_object = self.bucket.get_object(entry.depot_path)
+        # Make a temp location for download until we verify it's good
+        pending_path = os.path.join(self.tmp_dir, entry.digest)
+        tracker_path = os.path.join(self.tmp_dir, entry.digest + '.tracker')
+        self.__storage.get_file(entry.depot_path, pending_path, tracker_path)
+        # Finalize and rename
         cache_dir = os.path.dirname(entry.cache_path)
         if not os.path.exists(cache_dir):
             os.makedirs(cache_dir)
-        # Make a temp location for download until we verify it's good
-        tmpfile = tempfile.NamedTemporaryFile(delete=False, dir=self.tmp_dir)
-        size = long(entry.depot_object.size)
-        chunk_size = 1024 * 1024
-        # Kick off the download and track with a progress bar
-        stream = self.bucket.download_object_as_stream(
-            entry.depot_object, chunk_size=chunk_size)
-        with tqdm.tqdm(total=size, unit='bytes', unit_scale=True) as bar:
-            for data in stream:
-                tmpfile.write(data)
-                bar.update(len(data))
-        # Finalize and rename
-        tmpfile.close()
-        os.rename(tmpfile.name, entry.cache_path)
+        os.rename(pending_path, entry.cache_path)
         # Lock and add to cache
         lock_file(entry.cache_path)
         self.index.add_digest(entry.digest)
@@ -373,40 +316,32 @@ class Depot(object):
     def put(self, entry):
         self._entry(entry)
         if not entry.in_depot:
-            click.echo('Pushing object: %s' % entry.digest)
-            self.bucket.upload_object(entry.cache_path, entry.depot_path)
+            tracker_path = os.path.join(self.tmp_dir,
+                                        entry.digest + '.tracker')
+            self.__storage.put_file(entry.depot_path, entry.cache_path,
+                                    tracker_path)
             self.index.add_digest(entry.digest)
 
     def load_refs(self):
         refs = []
-        try:
-            obj = self.bucket.get_object(self.refs_path)
-        except ObjectDoesNotExistError:
-            return (None, refs)
-        stream = obj.as_stream()
-        for line in stream:
+        obj = self.__storage.get_string(self.refs_path)
+        if obj is None:
+            return (None, None)
+        for line in obj.data.splitlines():
             refs.append(line.rstrip())
         return (obj, refs)
 
     def save_refs(self, refs):
-        extra = {
-            'meta_data': {
-                'host': socket.gethostname(),
-                'user': getpass.getuser(),
-                'path': self.repo.git_dir,
-            }
+        metadata = {
+            'host': socket.gethostname(),
+            'user': getpass.getuser(),
+            'path': self.repo.git_dir,
         }
         buf = '\n'.join(refs)
-        stream = StringIO(buf)
-        self.bucket.upload_object_via_stream(
-            stream, self.refs_path, extra=extra)
+        self.__storage.put_string(self.refs_path, buf, metadata)
 
     def delete_refs(self):
-        try:
-            obj = self.bucket.get_object(self.refs_path)
-        except ObjectDoesNotExistError:
-            return
-        self.bucket.delete_object(obj)
+        self.__storage.delete_object(self.refs_path)
 
 
 class App(object):
@@ -557,8 +492,8 @@ class App(object):
             click.echo(digest)
         obj, _ = self.depot.load_refs()
         if obj:
-            click.echo(obj.extra)
-            click.echo(obj.meta_data)
+            click.echo(obj.last_modified)
+            click.echo(obj.metadata)
 
     def cmd_check(self):
         '''Do an integrity check of the local cache'''
