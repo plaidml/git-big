@@ -27,6 +27,7 @@ import subprocess
 import uuid
 
 import click
+import progressbar
 
 import git_big.storage
 from . import __version__
@@ -199,12 +200,32 @@ class Entry(object):
 
 def compute_digest(path):
     algorithm = hashlib.sha256()
-    with open(path, 'rb') as file_:
-        while True:
-            buf = file_.read(BLOCKSIZE)
-            if not buf:
-                break
-            algorithm.update(buf)
+    size = os.path.getsize(path)
+
+    def make_progress_bar(size):
+        widgets = [
+            progressbar.Percentage(),
+            ' ',
+            progressbar.Bar(),
+            ' ',
+            progressbar.AdaptiveETA(),
+            ' ',
+            progressbar.DataSize(),
+        ]
+
+        return progressbar.ProgressBar(widgets= widgets, max_value=size)
+
+    with make_progress_bar(size) as pbar:
+        with open(path, 'rb') as file_:
+            total_len = 0
+            while True:
+                buf = file_.read(BLOCKSIZE)
+                if not buf:
+                    break
+                algorithm.update(buf)
+                total_len += len(buf)
+                pbar.update(total_len)
+
     return algorithm.hexdigest()
 
 
@@ -752,7 +773,9 @@ def cmd_version():
 
 @cli.command('init')
 def cmd_init():
-    '''Initialize big files'''
+    '''Initialize local repositories with big files.
+    Sets up your local repository for use with git big
+    '''
     App().cmd_init()
 
 
@@ -760,7 +783,10 @@ def cmd_init():
 @click.argument('repo')
 @click.argument('to_path', required=False)
 def cmd_clone(repo, to_path):
-    '''Clone a repository with big files'''
+    '''Clone a repository with big files.
+    Allows you to clone a repository in the same way git clone works but can
+    be used on repositories wth WORM files.
+    '''
     if not to_path:
         to_path = re.split('[:/]', repo.rstrip('/').rstrip('.git'))[-1]
     os.system('git clone %s %s' % (repo, to_path))
@@ -772,28 +798,46 @@ def cmd_clone(repo, to_path):
 
 @cli.command('status')
 def cmd_status():
-    '''View big file status'''
+    '''View big file status
+    Allows you to see where your files exist on either working/ local repisitory,
+    the cache, or the depot where your large files are being stored.
+    '''
     App().cmd_status()
 
 
 @cli.command('add')
 @click.argument('paths', nargs=-1, type=click.Path(exists=True))
 def cmd_add(paths):
-    '''Add big files'''
+    '''Add big files.
+    This command gives you the option of inputting one or more paths. If a
+    single file path is given, it will add your file to the index. If a
+     directory path is given, all files within the directory will be
+     recursively added to the index.
+    '''
     App().cmd_add(paths)
 
 
 @cli.command('rm')
 @click.argument('paths', nargs=-1, type=click.Path())
 def cmd_remove(paths):
-    '''Remove big files'''
+    '''Remove big files.
+    This command gives you the option of inputting one or more paths. If a
+    single file path is given, it will remove your file from the index. If a
+    directory path is given, all files within the directory will be
+    recursively removed from the index.
+    '''
     App().cmd_remove(paths)
 
 
 @cli.command('unlock')
 @click.argument('paths', nargs=-1, type=click.Path(exists=True))
 def cmd_unlock(paths):
-    '''Unlock big files'''
+    '''Unlock big files.
+    When adding a large binary file to your directory, it will be set to
+    read only mode to prevent from accidental overwrites or deletions. In order
+    to edit your desired file, it will need to be, unlocked, removed, edited and then
+    pushed to your git repository.
+    '''
     App().cmd_unlock(paths)
 
 
@@ -801,7 +845,11 @@ def cmd_unlock(paths):
 @click.argument('sources', nargs=-1, type=click.Path(exists=True))
 @click.argument('dest', nargs=1, type=click.Path())
 def cmd_move(sources, dest):
-    '''Move big files'''
+    '''Move big files.
+    Moves or renames a file, a directory or a symlink in the same
+    way that git mv would usually work. The index will be updated with
+    the new changes made but changes must be committed.
+    '''
     App().cmd_move(sources, dest)
 
 
@@ -809,19 +857,26 @@ def cmd_move(sources, dest):
 @click.argument('sources', nargs=-1, type=click.Path(exists=True))
 @click.argument('dest', nargs=1, type=click.Path())
 def cmd_copy(sources, dest):
-    '''Copy big files'''
+    '''Copy big files.
+    Copies specified file to a specified location e.g.
+    git big cp bigfile.iso /home/new/place
+    '''
     App().cmd_copy(sources, dest)
 
 
 @cli.command('push')
 def cmd_push():
-    '''Push big files'''
+    '''Push big files.
+    Updates references to files in the remote repository.
+    '''
     App().cmd_push()
 
 
 @cli.command('pull')
 def cmd_pull():
-    '''Pull big files'''
+    '''Pull big files
+    Allows you to receive big files from a remote repository.
+    '''
     App().cmd_pull()
 
 
