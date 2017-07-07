@@ -27,7 +27,6 @@ import subprocess
 import uuid
 
 import click
-import progressbar
 
 import git_big.storage
 from . import __version__
@@ -252,7 +251,6 @@ def compute_digest(path, rel_path):
                 algorithm.update(buf)
                 total_len += len(buf)
                 pbar.update(total_len)
-
     return algorithm.hexdigest()
 
 

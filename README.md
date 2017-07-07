@@ -174,15 +174,50 @@ Options:
 
 Commands:
   add      Add big files
+           This command gives you the option of inputting one or more paths. If a
+           single file path is given, it will add your file to the index. If a
+           directory path is given, all files within the directory will be
+           recursively added to the index.
+
   clone    Clone a repository with big files
+           Allows you to clone a repository in the same way git clone works but can
+           be used on repositories wth WORM files.
+
   cp       Copy big files
+           Copies specified file to a specified location e.g.
+           git big cp bigfile.iso /home/new/place
+
   help     Show this message and exit.
+
   init     Initialize big files
+           Sets up your local repository for use with git big
+
   mv       Move big files
+           Moves or renames a file, a directory or a symlink in the same
+           way that git mv would usually work. The index will be updated with
+           the new changes made but changes must be committed.
+
   pull     Pull big files
+           Allows you to receive big files from a remote repository.
+
   push     Push big files
+           Updates references to files in the remote repository.
+
   rm       Remove big files
+           This command gives you the option of inputting one or more paths. If a
+           single file path is given, it will remove your file from the index. If a
+           directory path is given, all files within the directory will be
+           recursively removed from the index.
+
   status   View big file status
+           Allows you to see where your files exist on either working/ local repisitory,
+           the cache, or the depot where your large files are being stored.
+
   unlock   Unlock big files
+           When adding a large binary file to your directory, it will be set to
+           read only mode to prevent from accidental overwrites or deletions. In order
+           to edit your desired file, it will need to be, unlocked, removed, edited and then
+           pushed to your git repository.
+
   version  Print version and exit
 ```
