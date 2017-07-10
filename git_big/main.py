@@ -691,7 +691,24 @@ class App(object):
         entry = Entry(self.config, rel_path, digest)
         os.unlink(entry.working_path)
         self.repo.index.remove([entry.working_path])
-        shutil.copy2(entry.cache_path, entry.working_path)
+
+        def copy_via_chunk(src, dst, chunk_size=1024 * 1024):
+            size = os.path.getsize(src)
+            open_src = open(src, 'rb')
+            open_dst = open(dst, 'wb')
+            with make_progress_bar(rel_path, size) as pbar:
+                copied = 0
+                while True:
+                    buf = open_src.read(chunk_size)
+                    if not buf:
+                        break
+                    open_dst.write(buf)
+                    copied += len(buf)
+                    pbar.update(copied)
+            open_src.close()
+            open_dst.close()
+
+        copy_via_chunk(entry.cache_path, entry.working_path)
         unlock_file(entry.working_path)
         del self.repo_config.files[rel_path]
 
