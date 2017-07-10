@@ -196,24 +196,32 @@ class Entry(object):
     def is_linked(self):
         return self.in_anchors and self.is_link and \
             os.readlink(self.working_path) == self.symlink_path
-def make_progress_bar(size):
+
+
+def make_progress_bar(name, size):
+
     widgets = [
-    progressbar.Percentage(),
-    ' ',
-    progressbar.Bar(),
-    ' ',
-    progressbar.AdaptiveETA(),
-    ' ',
-    progressbar.DataSize(),
+        '%s: ' % name,
+        progressbar.Percentage(),
+        ' ',
+        progressbar.Bar(),
+        ' ',
+        progressbar.AdaptiveETA(),
+        ' ',
+        progressbar.DataSize(),
     ]
 
     return progressbar.ProgressBar(widgets= widgets, max_value=size)
+
 
 def compute_digest(path):
     algorithm = hashlib.sha256()
     size = os.path.getsize(path)
 
-    with make_progress_bar(size) as pbar:
+    rel_path = os.path.relpath(
+        os.path.abspath(path), App().repo.working_dir)
+
+    with make_progress_bar(rel_path, size) as pbar:
         with open(path, 'rb') as file_:
             total_len = 0
             while True:
@@ -446,6 +454,7 @@ class App(object):
         self._save_config()
 
     def cmd_unlock(self, paths):
+
         for path in self._walk(paths):
             self._unlock_file(path)
         self._save_config()
@@ -642,7 +651,6 @@ class App(object):
         rel_path = os.path.relpath(
             os.path.abspath(path), self.repo.working_dir)
         digest = compute_digest(path)
-        click.echo(rel_path)
         entry = Entry(self.config, rel_path, digest)
 
         if not entry.in_cache:
@@ -689,12 +697,14 @@ class App(object):
         entry = Entry(self.config, rel_path, digest)
         os.unlink(entry.working_path)
         self.repo.index.remove([entry.working_path])
+        # shutil.copy2(entry.cache_path, entry.working_path)
 
         def copy_via_chunk(src, dst, chunk_size=1024 * 1024):
+            # filename = os.path.basename(entry.working_path)
             size = os.path.getsize(src)
             open_src = open(src, 'rb')
             open_dst = open(dst, 'wb')
-            with make_progress_bar(rel_path, size) as pbar:
+            with make_progress_bar(entry.working_path, size) as pbar:
                 copied = 0
                 while True:
                     buf = open_src.read(chunk_size)
@@ -705,7 +715,6 @@ class App(object):
                     pbar.update(copied)
             open_src.close()
             open_dst.close()
-
         copy_via_chunk(entry.cache_path, entry.working_path)
         unlock_file(entry.working_path)
         del self.repo_config.files[rel_path]
