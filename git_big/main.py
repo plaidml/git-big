@@ -196,24 +196,22 @@ class Entry(object):
     def is_linked(self):
         return self.in_anchors and self.is_link and \
             os.readlink(self.working_path) == self.symlink_path
+def make_progress_bar(size):
+    widgets = [
+    progressbar.Percentage(),
+    ' ',
+    progressbar.Bar(),
+    ' ',
+    progressbar.AdaptiveETA(),
+    ' ',
+    progressbar.DataSize(),
+    ]
 
+    return progressbar.ProgressBar(widgets= widgets, max_value=size)
 
 def compute_digest(path):
     algorithm = hashlib.sha256()
     size = os.path.getsize(path)
-
-    def make_progress_bar(size):
-        widgets = [
-            progressbar.Percentage(),
-            ' ',
-            progressbar.Bar(),
-            ' ',
-            progressbar.AdaptiveETA(),
-            ' ',
-            progressbar.DataSize(),
-        ]
-
-        return progressbar.ProgressBar(widgets= widgets, max_value=size)
 
     with make_progress_bar(size) as pbar:
         with open(path, 'rb') as file_:
