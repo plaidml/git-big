@@ -27,6 +27,7 @@ import subprocess
 import uuid
 
 import click
+import progressbar
 
 import git_big.storage
 from . import __version__
@@ -197,14 +198,34 @@ class Entry(object):
             os.readlink(self.working_path) == self.symlink_path
 
 
-def compute_digest(path):
+def make_progress_bar(name, size):
+
+    widgets = [
+        '%s: ' % name,
+        progressbar.Percentage(),
+        ' ',
+        progressbar.Bar(),
+        ' ',
+        progressbar.AdaptiveETA(),
+        ' ',
+        progressbar.DataSize(),
+    ]
+    return progressbar.ProgressBar(widgets= widgets, max_value=size)
+
+def compute_digest(path, rel_path):
     algorithm = hashlib.sha256()
-    with open(path, 'rb') as file_:
-        while True:
-            buf = file_.read(BLOCKSIZE)
-            if not buf:
-                break
-            algorithm.update(buf)
+    size = os.path.getsize(path)
+    with make_progress_bar(rel_path, size) as pbar:
+        with open(path, 'rb') as file_:
+            total_len = 0
+            while True:
+                buf = file_.read(BLOCKSIZE)
+                if not buf:
+                    break
+                algorithm.update(buf)
+                total_len += len(buf)
+                pbar.update(total_len)
+
     return algorithm.hexdigest()
 
 
@@ -427,6 +448,7 @@ class App(object):
         self._save_config()
 
     def cmd_unlock(self, paths):
+
         for path in self._walk(paths):
             self._unlock_file(path)
         self._save_config()
@@ -500,7 +522,9 @@ class App(object):
         for root, _, files in os.walk(self.config.objects_dir):
             for file_ in files:
                 path = os.path.join(root, file_)
-                digest = compute_digest(path)
+                rel_path = os.path.relpath(
+                    os.path.abspath(path), self.repo.working_dir)
+                digest = compute_digest(path, rel_path)
                 if file_ != digest:
                     click.echo('Error: mismatched content.')
                     click.echo('  Path: %s' % path)
@@ -622,8 +646,7 @@ class App(object):
 
         rel_path = os.path.relpath(
             os.path.abspath(path), self.repo.working_dir)
-        digest = compute_digest(path)
-        click.echo(rel_path)
+        digest = compute_digest(path, rel_path)
         entry = Entry(self.config, rel_path, digest)
 
         if not entry.in_cache:
@@ -659,6 +682,20 @@ class App(object):
         click.echo(rel_path)
         del self.repo_config.files[rel_path]
 
+    def _copy_via_chunk(self, src, dst):
+        size = os.path.getsize(src)
+        rel_path = os.path.relpath(os.path.abspath(dst), self.repo.working_dir)
+        with open(src, 'rb') as src_file_, open(dst, 'wb') as dst_file_:
+            with make_progress_bar(rel_path, size) as pbar:
+                copied = 0
+                while True:
+                    buf = src_file_.read(BLOCKSIZE)
+                    if not buf:
+                        break
+                    dst_file_.write(buf)
+                    copied += len(buf)
+                    pbar.update(copied)
+
     def _unlock_file(self, path):
         if not os.path.islink(path):
             return
@@ -670,7 +707,7 @@ class App(object):
         entry = Entry(self.config, rel_path, digest)
         os.unlink(entry.working_path)
         self.repo.index.remove([entry.working_path])
-        shutil.copy2(entry.cache_path, entry.working_path)
+        self._copy_via_chunk(entry.cache_path, entry.working_path)
         unlock_file(entry.working_path)
         del self.repo_config.files[rel_path]
 
@@ -779,7 +816,7 @@ def cmd_status():
 @cli.command('add')
 @click.argument('paths', nargs=-1, type=click.Path(exists=True))
 def cmd_add(paths):
-    '''Add big files'''
+    '''Add big files.'''
     App().cmd_add(paths)
 
 
