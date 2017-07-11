@@ -684,8 +684,9 @@ class App(object):
 
     def _copy_via_chunk(self, src, dst):
         size = os.path.getsize(src)
+        rel_path = os.path.relpath(os.path.abspath(dst), self.repo.working_dir)
         with open(src, 'rb') as src_file_, open(dst, 'wb') as dst_file_:
-            with make_progress_bar(dst, size) as pbar:
+            with make_progress_bar(rel_path, size) as pbar:
                 copied = 0
                 while True:
                     buf = src_file_.read(BLOCKSIZE)
