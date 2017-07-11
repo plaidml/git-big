@@ -212,7 +212,6 @@ def make_progress_bar(name, size):
     ]
     return progressbar.ProgressBar(widgets= widgets, max_value=size)
 
-
 def compute_digest(path, rel_path):
     algorithm = hashlib.sha256()
     size = os.path.getsize(path)
@@ -789,7 +788,7 @@ def cmd_version():
 
 @cli.command('init')
 def cmd_init():
-    '''Initialize local repositories with big files.'''
+    '''Initialize big files'''
     App().cmd_init()
 
 
@@ -797,7 +796,7 @@ def cmd_init():
 @click.argument('repo')
 @click.argument('to_path', required=False)
 def cmd_clone(repo, to_path):
-    '''Clone a repository with big files.'''
+    '''Clone a repository with big files'''
     if not to_path:
         to_path = re.split('[:/]', repo.rstrip('/').rstrip('.git'))[-1]
     os.system('git clone %s %s' % (repo, to_path))
@@ -823,14 +822,14 @@ def cmd_add(paths):
 @cli.command('rm')
 @click.argument('paths', nargs=-1, type=click.Path())
 def cmd_remove(paths):
-    '''Remove big files.'''
+    '''Remove big files'''
     App().cmd_remove(paths)
 
 
 @cli.command('unlock')
 @click.argument('paths', nargs=-1, type=click.Path(exists=True))
 def cmd_unlock(paths):
-    '''Unlock big files.'''
+    '''Unlock big files'''
     App().cmd_unlock(paths)
 
 
@@ -838,7 +837,7 @@ def cmd_unlock(paths):
 @click.argument('sources', nargs=-1, type=click.Path(exists=True))
 @click.argument('dest', nargs=1, type=click.Path())
 def cmd_move(sources, dest):
-    '''Move big files.'''
+    '''Move big files'''
     App().cmd_move(sources, dest)
 
 
@@ -852,7 +851,7 @@ def cmd_copy(sources, dest):
 
 @cli.command('push')
 def cmd_push():
-    '''Push big files.'''
+    '''Push big files'''
     App().cmd_push()
 
 
