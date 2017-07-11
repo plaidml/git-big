@@ -199,18 +199,18 @@ class Entry(object):
 
 
 def make_progress_bar(name, size):
-
     widgets = [
         '%s: ' % name,
         progressbar.Percentage(),
         ' ',
         progressbar.Bar(),
         ' ',
-        progressbar.AdaptiveETA(),
+        progressbar.ETA(),
         ' ',
         progressbar.DataSize(),
     ]
-    return progressbar.ProgressBar(widgets= widgets, max_value=size)
+    return progressbar.ProgressBar(widgets=widgets, max_value=size)
+
 
 def compute_digest(path, rel_path):
     algorithm = hashlib.sha256()
@@ -522,9 +522,7 @@ class App(object):
         for root, _, files in os.walk(self.config.objects_dir):
             for file_ in files:
                 path = os.path.join(root, file_)
-                rel_path = os.path.relpath(
-                    os.path.abspath(path), self.repo.working_dir)
-                digest = compute_digest(path, rel_path)
+                digest = compute_digest(path, file_[8:])
                 if file_ != digest:
                     click.echo('Error: mismatched content.')
                     click.echo('  Path: %s' % path)
