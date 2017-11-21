@@ -32,7 +32,8 @@ class Context(object):
         self.repo_dir = os.path.join(self.root_dir, 'repo')
         self.depot_dir = os.path.join(self.root_dir, 'depot')
         self.bucket_dir = os.path.join(self.depot_dir, 'bucket')
-        os.makedirs(self.bucket_dir)
+        if not os.path.exists(self.bucket_dir):
+            os.makedirs(self.bucket_dir)
 
     def git_big_init(self):
         check_output(['git', 'config', 'git-big.cache-dir', self.cache_dir])
@@ -40,16 +41,19 @@ class Context(object):
         check_output(['git', 'config', 'git-big.depot.key', self.depot_dir])
         check_output(['git', 'big', 'init'])
 
-    def clone(self, dirname='clone'):
-        clone_dir = os.path.join(self.root_dir, dirname)
-        check_output(['git', 'clone', self.repo_dir, clone_dir])
-        os.chdir(clone_dir)
-        self.git_big_init()
-        return clone_dir
+    def clone(self, repo_dir='clone', cache_dir='cache'):
+        ctx = Context(self.root_dir)
+        ctx.repo_dir = os.path.join(self.root_dir, repo_dir)
+        ctx.cache_dir = os.path.join(self.root_dir, cache_dir)
+        check_output(['git', 'clone', self.repo_dir, ctx.repo_dir])
+        os.chdir(ctx.repo_dir)
+        ctx.git_big_init()
+        return ctx
 
 
 @pytest.fixture
 def env(tmpdir):
+    # tmpdir is magical: https://docs.pytest.org/en/latest/tmpdir.html
     context = Context(tmpdir)
     check_output(['git', 'init', context.repo_dir])
     os.chdir(context.repo_dir)
@@ -59,6 +63,7 @@ def env(tmpdir):
 
 @pytest.fixture
 def bare_env(tmpdir):
+    # tmpdir is magical: https://docs.pytest.org/en/latest/tmpdir.html
     context = Context(tmpdir)
     check_output(['git', 'init', '--bare', context.repo_dir])
     os.chdir(context.repo_dir)

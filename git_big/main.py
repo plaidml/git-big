@@ -41,6 +41,19 @@ def git(*args):
     return subprocess.check_output(['git'] + map(str, args), stderr=DEV_NULL)
 
 
+def human_size(num):
+    if num is None:
+        return ''
+    if abs(num) < 1024:
+        return '{:3.0f}{}'.format(num, 'B')
+    num /= 1024.0
+    for unit in ['K', 'M', 'G', 'T', 'P', 'E', 'Z']:
+        if abs(num) < 1024.0:
+            return '{:3.1f}{}'.format(num, unit)
+        num /= 1024.0
+    return '{:3.1f}{}'.format(num, 'Y')
+
+
 class GitIndex(object):
     def add(self, paths):
         for path in paths:
@@ -161,6 +174,7 @@ class Config(RepoConfig):
 
 class Entry(object):
     def __init__(self, config, rel_path, digest):
+        self._depot_size = None
         self.rel_path = rel_path
         self.digest = digest
         self.working_path = os.path.join(config.working_dir, self.rel_path)
@@ -174,7 +188,6 @@ class Entry(object):
             self.depot_path = config.depot.make_path('objects', self.digest)
         else:
             self.depot_path = None
-        self.in_depot = False
 
     @property
     def in_cache(self):
@@ -196,6 +209,20 @@ class Entry(object):
     def is_linked(self):
         return self.in_anchors and self.is_link and \
             os.readlink(self.working_path) == self.symlink_path
+
+    @property
+    def in_depot(self):
+        return self._depot_size is not None
+
+    @property
+    def size(self):
+        if self.in_working:
+            return os.path.getsize(self.working_path)
+        if self.in_cache:
+            return os.path.getsize(self.cache_path)
+        if self.in_depot:
+            return self._depot_size
+        return None
 
 
 def make_progress_bar(name, size):
@@ -260,7 +287,7 @@ def make_executable(path):
 
 class DepotIndex(object):
     def __init__(self, path):
-        self.__index = set()
+        self.__index = dict()
         self.path = path
 
     @property
@@ -269,26 +296,28 @@ class DepotIndex(object):
         return self.__index
 
     def has_digest(self, digest):
-        return digest in self.index
+        return self.index.get(digest)
 
-    def add_digest(self, digest):
-        self.index.add(digest)
+    def add_digest(self, digest, size):
+        self.index[digest] = size
         self._save()
 
     def _load(self):
-        self.__index = set()
+        self.__index = dict()
         if os.path.exists(self.path):
             with open(self.path, 'r') as file_:
                 for line in file_:
-                    self.__index.add(line.rstrip())
+                    pair = line.rstrip().split(' ', 2)
+                    if len(pair) == 2:
+                        self.__index[pair[0]] = int(pair[1])
 
     def _save(self):
         dir_path = os.path.dirname(self.path)
         if not os.path.exists(dir_path):
             os.makedirs(dir_path)
         with open(self.path, 'w') as file_:
-            for digest in self.__index:
-                file_.write(digest + '\n')
+            for digest, size in self.__index.items():
+                file_.write('{} {}\n'.format(digest, size))
 
 
 class Depot(object):
@@ -305,13 +334,15 @@ class Depot(object):
     def _entry(self, entry):
         # use an index to prevent having to query the depot when we know
         # for certain that the object exists in the bucket
-        if self.index.has_digest(entry.digest):
-            entry.in_depot = True
+        size = self.index.has_digest(entry.digest)
+        if size is not None:
+            entry._depot_size = size
             return
 
-        if self.__storage.has_object(entry.depot_path):
-            entry.in_depot = True
-            self.index.add_digest(entry.digest)
+        size = self.__storage.has_object(entry.depot_path)
+        if size is not None:
+            entry._depot_size = size
+            self.index.add_digest(entry.digest, size)
 
     def get_status(self, entry):
         self._entry(entry)
@@ -332,7 +363,7 @@ class Depot(object):
         os.rename(pending_path, entry.cache_path)
         # Lock and add to cache
         lock_file(entry.cache_path)
-        self.index.add_digest(entry.digest)
+        self.index.add_digest(entry.digest, entry._depot_size)
 
     def put(self, entry):
         self._entry(entry)
@@ -341,7 +372,8 @@ class Depot(object):
                                         entry.digest + '.tracker')
             self.__storage.put_file(entry.depot_path, entry.cache_path,
                                     tracker_path)
-            self.index.add_digest(entry.digest)
+            self.index.add_digest(entry.digest,
+                                  os.path.getsize(entry.cache_path))
 
     def load_refs(self):
         refs = []
@@ -421,7 +453,7 @@ class App(object):
         click.echo('  Working')
         click.echo('    Cache')
         click.echo('      Depot')
-        click.echo()
+        click.echo('          SHA-256    Size Path')
         for entry in self._entries():
             if self.depot:
                 self.depot.get_status(entry)
@@ -433,8 +465,9 @@ class App(object):
                 w_bit = ' '
             c_bit = entry.in_cache and 'C' or ' '
             d_bit = entry.in_depot and 'D' or ' '
-            click.echo('[ %s %s %s ] %s %s' %
-                       (w_bit, c_bit, d_bit, entry.digest[:8], entry.rel_path))
+            click.echo('[ {} {} {} ] {} {:>6} {}'.format(
+                w_bit, c_bit, d_bit, entry.digest[:8], human_size(entry.size),
+                entry.rel_path))
         click.echo()
 
     def cmd_add(self, paths):
@@ -471,14 +504,16 @@ class App(object):
             self.depot.put(entry)
         self.depot.save_refs(self._find_reachable_objects())
 
-    def cmd_pull(self):
-        # clear the anchors on each pull
-        if os.path.exists(self.config.anchors_dir):
+    def cmd_pull(self, paths=[], soft=True):
+        if paths:
+            soft = False
+        # clear the anchors on each full pull
+        if os.path.exists(self.config.anchors_dir) and not paths:
             shutil.rmtree(self.config.anchors_dir)
         # now go thru the index and populate all the anchors
-        for entry in self._entries():
+        for entry in self._entries(paths=paths):
             # grab a copy from the depot if it exists
-            if not entry.in_cache and self.depot:
+            if not entry.in_cache and self.depot and not soft:
                 self.depot.get(entry)
             if entry.in_cache:
                 # add hardlink from the anchor to the cache
@@ -500,7 +535,7 @@ class App(object):
                                entry.rel_path)
                     raise SystemExit(1)
             else:
-                click.echo('Missing object for file: %s' % entry.rel_path)
+                click.echo('Missing object for file: "%s"' % entry.rel_path)
         self.depot.save_refs(self._find_reachable_objects())
 
     def cmd_drop(self):
@@ -625,9 +660,10 @@ class App(object):
             return
         os.execv(hook_path, [hook_path] + list(args))
 
-    def _entries(self):
+    def _entries(self, paths=[]):
         for rel_path, digest in self.config.files.iteritems():
-            yield Entry(self.config, rel_path, digest)
+            if not paths or rel_path in paths:
+                yield Entry(self.config, rel_path, digest)
 
     def _walk(self, paths):
         for path in paths:
@@ -713,7 +749,7 @@ class App(object):
         if len(srcs) > 1:
             if not os.path.isdir(tgt):
                 click.echo(
-                    'Destination must be a directoy when specifying multiple sources'
+                    'Destination must be a directory when specifying multiple sources'
                 )
                 return
             for src in srcs:
@@ -794,7 +830,8 @@ def cmd_init():
 @cli.command('clone')
 @click.argument('repo')
 @click.argument('to_path', required=False)
-def cmd_clone(repo, to_path):
+@click.option('--soft/--hard', default=True)
+def cmd_clone(repo, to_path, soft):
     '''Clone a repository with big files'''
     if not to_path:
         to_path = re.split('[:/]', repo.rstrip('/').rstrip('.git'))[-1]
@@ -802,7 +839,7 @@ def cmd_clone(repo, to_path):
     os.chdir(to_path)
     app = App()
     app.cmd_init()
-    app.cmd_pull()
+    app.cmd_pull(soft=soft)
 
 
 @cli.command('status')
@@ -855,9 +892,11 @@ def cmd_push():
 
 
 @cli.command('pull')
-def cmd_pull():
+@click.argument('paths', nargs=-1, type=click.Path())
+@click.option('--soft/--hard', default=True)
+def cmd_pull(paths, soft):
     '''Pull big files'''
-    App().cmd_pull()
+    App().cmd_pull(paths=paths, soft=soft)
 
 
 @cli.command('drop')

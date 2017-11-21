@@ -15,7 +15,7 @@
 from __future__ import print_function
 
 import os
-from os.path import islink, join
+from os.path import isfile, islink, join
 from subprocess import check_call, check_output
 
 # pylint: disable=unused-argument,W0621
@@ -24,10 +24,14 @@ from conftest import (HELLO_CONTENT, HELLO_DIGEST, WORLD_CONTENT, WORLD_DIGEST,
 
 
 def make_origin(env):
-    # add a file
-    file_ = join(env.repo_dir, 'foo')
-    open(file_, 'w').write(HELLO_CONTENT)
-    check_output(['git', 'big', 'add', file_])
+    # add files
+    foo = join(env.repo_dir, 'foo')
+    open(foo, 'w').write(HELLO_CONTENT)
+    check_output(['git', 'big', 'add', foo])
+
+    bar = join(env.repo_dir, 'bar')
+    open(bar, 'w').write(WORLD_CONTENT)
+    check_output(['git', 'big', 'add', bar])
 
     # push up to the depot
     check_output(['git', 'big', 'push'])
@@ -44,12 +48,22 @@ def test_fresh_clone(env):
     make_origin(env)
 
     # clone it
-    clone_dir = env.clone()
+    clone = env.clone(cache_dir='clone_cache')
 
-    # now pull big files
-    check_output(['git', 'big', 'pull'])
+    # pull big files (initially soft)
+    check_call(['git', 'big', 'pull'])
 
-    assert islink(join(clone_dir, 'foo'))
+    assert islink(join(clone.repo_dir, 'foo'))
+    assert islink(join(clone.repo_dir, 'bar'))
+
+    assert not isfile(join(clone.repo_dir, 'foo'))
+    assert not isfile(join(clone.repo_dir, 'bar'))
+
+    # pull big files (now hard)
+    check_output(['git', 'big', 'pull', '--hard'])
+
+    assert isfile(join(clone.repo_dir, 'foo'))
+    assert isfile(join(clone.repo_dir, 'bar'))
 
 
 def check_anchors(env, expected):
@@ -139,3 +153,31 @@ def test_checkout_diff_types(env):
     # switch back to 1st branch
     check_output(['git', 'checkout', 'master'])
     check_locked_file(env, file_, HELLO_DIGEST)
+
+
+def test_pull_file(env):
+    '''test the ability to pull individual big files'''
+
+    # make the origin repo
+    make_origin(env)
+
+    # clone it
+    clone = env.clone(cache_dir='clone_cache')
+
+    # now pull a single file
+    check_output(['git', 'big', 'pull', 'foo'])
+
+    assert isfile(join(clone.repo_dir, 'foo'))
+    assert not isfile(join(clone.repo_dir, 'bar'))
+
+    # pulling a file again is ok
+    check_output(['git', 'big', 'pull', 'foo'])
+
+    assert isfile(join(clone.repo_dir, 'foo'))
+    assert not isfile(join(clone.repo_dir, 'bar'))
+
+    # pull another big file
+    check_output(['git', 'big', 'pull', 'bar'])
+
+    assert isfile(join(clone.repo_dir, 'foo'))
+    assert isfile(join(clone.repo_dir, 'bar'))
