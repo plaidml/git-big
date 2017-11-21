@@ -23,7 +23,7 @@ clean:
 	rm -f requirements*.txt
 	rm -rf build
 	rm -rf dist
-	find -name *.pyc -delete
+	find . -name *.pyc -delete
 
 %.txt: %.in
 	pip-compile $<
@@ -38,5 +38,8 @@ publish: ${WHEEL}
 	git push --tag
 	twine upload ${WHEEL}
 
-test:
+install:
+	pip install -e .
+
+test: install
 	pytest

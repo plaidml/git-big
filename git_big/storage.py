@@ -96,10 +96,10 @@ class LibcloudStorage(Storage):
 
     def has_object(self, obj_path):
         try:
-            self.bucket.get_object(obj_path)
-            return True
+            obj = self.bucket.get_object(obj_path)
+            return obj.size
         except ObjectDoesNotExistError:
-            return False
+            return None
 
     def delete_object(self, obj_path):
         try:
@@ -165,7 +165,9 @@ class BotoStorage(Storage):
 
     def has_object(self, obj_path):
         key = self.bucket.get_key(obj_path)
-        return key is not None
+        if key:
+            return key.size
+        return None
 
     def delete_object(self, obj_path):
         self.bucket.delete_key(obj_path)
