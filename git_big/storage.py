@@ -25,8 +25,6 @@ from boto.gs.resumable_upload_handler import ResumableUploadHandler
 from boto.s3.resumable_download_handler import ResumableDownloadHandler
 from libcloud.storage.types import ObjectDoesNotExistError
 
-from git_big.fix_progressbar import AdaptiveTransferSpeed
-
 CHUNK_SIZE = 1024 * 1024
 NUM_CB = -1
 
@@ -42,7 +40,7 @@ def make_progress_bar(name, size):
         ' ',
         progressbar.DataSize(),
         ' ',
-        AdaptiveTransferSpeed(),
+        progressbar.AdaptiveTransferSpeed(),
     ]
     return progressbar.ProgressBar(widgets=widgets, max_value=size)
 
