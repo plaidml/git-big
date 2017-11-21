@@ -57,7 +57,7 @@ def human_size(num):
 class GitIndex(object):
     def add(self, paths):
         for path in paths:
-            git('add', path)
+            git('add', '-f', path)
 
     def remove(self, paths):
         for path in paths:
@@ -660,7 +660,9 @@ class App(object):
         os.execv(hook_path, [hook_path] + list(args))
 
     def _entries(self, paths=[]):
-        for rel_path, digest in self.config.files.iteritems():
+        keys = sorted(self.config.files.keys())
+        for rel_path in keys:
+            digest = self.config.files[rel_path]
             if not paths or rel_path in paths:
                 yield Entry(self.config, rel_path, digest)
 

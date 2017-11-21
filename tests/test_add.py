@@ -116,3 +116,21 @@ def test_add_directory(env):
 
     check_locked_file(env, file1, HELLO_DIGEST)
     check_locked_file(env, file2, WORLD_DIGEST)
+
+
+def test_add_gitignore(env):
+    '''Adding a file that is ignored by git should succeed'''
+    gitignore = join(env.repo_dir, '.gitignore')
+    open(gitignore, 'w').write('*.foo\n')
+
+    # add .gitignore file
+    check_output(['git', 'big', 'add', gitignore])
+    check_output(['git', 'commit', '-m', 'message'])
+
+    # add file that is ignored
+    test_file = join(env.repo_dir, 'some.foo')
+    open(test_file, 'w').write(HELLO_CONTENT)
+    add_file(env, test_file, HELLO_DIGEST, ['M  .gitbig', 'A  some.foo'])
+
+    # ensure commits work
+    check_output(['git', 'commit', '-m', 'message'])
