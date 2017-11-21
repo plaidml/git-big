@@ -252,7 +252,6 @@ def compute_digest(path, rel_path):
                 algorithm.update(buf)
                 total_len += len(buf)
                 pbar.update(total_len)
-
     return algorithm.hexdigest()
 
 
@@ -466,8 +465,8 @@ class App(object):
             c_bit = entry.in_cache and 'C' or ' '
             d_bit = entry.in_depot and 'D' or ' '
             click.echo('[ {} {} {} ] {} {:>6} {}'.format(
-                w_bit, c_bit, d_bit, entry.digest[:8], human_size(entry.size),
-                entry.rel_path))
+                w_bit, c_bit, d_bit, entry.digest[:8],
+                human_size(entry.size), entry.rel_path))
         click.echo()
 
     def cmd_add(self, paths):
@@ -817,13 +816,13 @@ def help(ctx, topic, **kw):
 
 @cli.command('version')
 def cmd_version():
-    '''Print version and exit'''
+    '''Print version and exit.'''
     click.echo(__version__)
 
 
 @cli.command('init')
 def cmd_init():
-    '''Initialize big files'''
+    '''Initialize a repository.'''
     App().cmd_init()
 
 
@@ -832,7 +831,7 @@ def cmd_init():
 @click.argument('to_path', required=False)
 @click.option('--soft/--hard', default=True)
 def cmd_clone(repo, to_path, soft):
-    '''Clone a repository with big files'''
+    '''Clone a repository with big files.'''
     if not to_path:
         to_path = re.split('[:/]', repo.rstrip('/').rstrip('.git'))[-1]
     os.system('git clone %s %s' % (repo, to_path))
@@ -844,28 +843,41 @@ def cmd_clone(repo, to_path, soft):
 
 @cli.command('status')
 def cmd_status():
-    '''View big file status'''
+    '''View big file status.
+    Shows the status of each file recognized by git-big.
+    '''
     App().cmd_status()
 
 
 @cli.command('add')
 @click.argument('paths', nargs=-1, type=click.Path(exists=True))
 def cmd_add(paths):
-    '''Add big files.'''
+    '''Add big files.
+    Each specified path will be added to git-big.
+    If a path refers to a directory, all files within the directory will be recursively added to the index.
+    '''
     App().cmd_add(paths)
 
 
 @cli.command('rm')
 @click.argument('paths', nargs=-1, type=click.Path())
 def cmd_remove(paths):
-    '''Remove big files'''
+    '''Remove big files.
+    Each specified path will be removed from git-big.
+    If a path refers to a directory, all files within the directory will be recursively removed from the index.
+    '''
     App().cmd_remove(paths)
 
 
 @cli.command('unlock')
 @click.argument('paths', nargs=-1, type=click.Path(exists=True))
 def cmd_unlock(paths):
-    '''Unlock big files'''
+    '''Unlock big files.
+    When a file is added to git-big, the working copy is set to read-only mode
+    to prevent from accidental overwrites or deletions.
+    Use this command to allow the file to be modified.
+    The file must be added back to git-big when changes are complete.
+    '''
     App().cmd_unlock(paths)
 
 
@@ -873,7 +885,10 @@ def cmd_unlock(paths):
 @click.argument('sources', nargs=-1, type=click.Path(exists=True))
 @click.argument('dest', nargs=1, type=click.Path())
 def cmd_move(sources, dest):
-    '''Move big files'''
+    '''Move big files.
+    Moves a big file in the same way that git mv would usually work.
+    The index will be updated to refer to the new location of moved files.
+    '''
     App().cmd_move(sources, dest)
 
 
@@ -881,13 +896,18 @@ def cmd_move(sources, dest):
 @click.argument('sources', nargs=-1, type=click.Path(exists=True))
 @click.argument('dest', nargs=1, type=click.Path())
 def cmd_copy(sources, dest):
-    '''Copy big files'''
+    '''Copy big files.
+    Copies a big file in the same way that git cp would usually work.
+    The index will be updated to refer to the old and new location of copied files.
+    '''
     App().cmd_copy(sources, dest)
 
 
 @cli.command('push')
 def cmd_push():
-    '''Push big files'''
+    '''Push big files.
+    Uploads big files to any configured depot.
+    '''
     App().cmd_push()
 
 
@@ -895,18 +915,21 @@ def cmd_push():
 @click.argument('paths', nargs=-1, type=click.Path())
 @click.option('--soft/--hard', default=True)
 def cmd_pull(paths, soft):
-    '''Pull big files'''
+    '''Pull big files.
+    Downloads big files from any configured depot.
+    '''
     App().cmd_pull(paths=paths, soft=soft)
 
 
 @cli.command('drop')
 def cmd_drop():
-    '''Notify depot that repository is gone'''
+    '''Internal command'''
     App().cmd_drop()
 
 
 @cli.group('hooks')
 def cmd_hooks():
+    '''Internal command'''
     pass
 
 
@@ -922,37 +945,44 @@ def cmd_hooks_pre_push(remote, url):
 @click.argument('new')
 @click.argument('flag')
 def cmd_hooks_post_checkout(previous, new, flag):
+    '''Internal command'''
     App().cmd_hooks_post_checkout(previous, new, flag)
 
 
 @cmd_hooks.command('post-merge')
 @click.argument('flag')
 def cmd_hooks_post_merge(flag):
+    '''Internal command'''
     App().cmd_hooks_post_merge(flag)
 
 
 @cli.group('dev')
 def dev():
+    '''Internal command'''
     pass
 
 
 @dev.command('reachable')
 def cmd_reachable():
+    '''Internal command'''
     App().cmd_reachable()
 
 
 @dev.command('check')
 def cmd_check():
+    '''Internal command'''
     App().cmd_check()
 
 
 @cli.group('filter')
 def cmd_filter():
+    '''Internal command'''
     pass
 
 
 @cmd_filter.command('process')
 def cmd_process():
+    '''Internal command'''
     import git_big.filter
     git_big.filter.cmd_process()
 
@@ -962,4 +992,5 @@ def cmd_process():
 @click.argument('current', default='default')
 @click.argument('other', default='default')
 def cmd_custom_merge(ancestor, current, other):
+    '''Internal command'''
     App().cmd_custom_merge(ancestor, current, other)
