@@ -173,51 +173,49 @@ Options:
   -h, --help  Show this message and exit.
 
 Commands:
-  add      Add big files
-           This command gives you the option of inputting one or more paths. If a
-           single file path is given, it will add your file to the index. If a
-           directory path is given, all files within the directory will be
-           recursively added to the index.
+  add
+    Add big files. Each specified path will be added to git-big. If a path
+    refers to a directory, all files within the directory will be recursively
+    added to the index.
 
-  clone    Clone a repository with big files
-           Allows you to clone a repository in the same way git clone works but can
-           be used on repositories wth WORM files.
+  clone
+    Clone a repository with big files.
 
-  cp       Copy big files
-           Copies specified file to a specified location e.g.
-           git big cp bigfile.iso /home/new/place
+  cp
+    Copy big files. Copies a big file in the same way that git cp would
+    usually work. The index will be updated to refer to the old and new
+    location of copied files.
 
-  help     Show this message and exit.
+  help
+    Show this message and exit.
 
-  init     Initialize big files
-           Sets up your local repository for use with git big
+  init
+    Initialize a repository.
 
-  mv       Move big files
-           Moves or renames a file, a directory or a symlink in the same
-           way that git mv would usually work. The index will be updated with
-           the new changes made but changes must be committed.
+  mv
+    Move big files. Moves a big file in the same way that git mv would usually
+    work. The index will be updated to refer to the new location of moved files.
 
-  pull     Pull big files
-           Allows you to receive big files from a remote repository.
+  pull
+    Pull big files. Downloads big files from any configured depot.
 
-  push     Push big files
-           Updates references to files in the remote repository.
+  push
+    Push big files. Uploads big files to any configured depot.
 
-  rm       Remove big files
-           This command gives you the option of inputting one or more paths. If a
-           single file path is given, it will remove your file from the index. If a
-           directory path is given, all files within the directory will be
-           recursively removed from the index.
+  rm
+    View big file status. Shows the status of each file recognized by git-big.
+    path refers to a directory, all files within the directory will be
+    recursively removed from the index.
 
-  status   View big file status
-           Allows you to see where your files exist on either working/ local repisitory,
-           the cache, or the depot where your large files are being stored.
+  status
+    View big file status. Shows the status of each file recognized by git-big.
 
-  unlock   Unlock big files
-           When adding a large binary file to your directory, it will be set to
-           read only mode to prevent from accidental overwrites or deletions. In order
-           to edit your desired file, it will need to be, unlocked, removed, edited and then
-           pushed to your git repository.
+  unlock
+    Unlock big files. When a file is added to git-big, the working copy is set
+    to read-only mode to prevent from accidental overwrites or deletions. Use
+    this command to allow the file to be modified. The file must be added back
+    to git-big when changes are complete.
 
-  version  Print version and exit
+  version
+    Print version and exit.
 ```
