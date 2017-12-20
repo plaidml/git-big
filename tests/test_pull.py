@@ -203,8 +203,8 @@ def check_alt_hardlink(env, file_path, digest):
             file_.write('fail')
 
 
-def test_pull_hardlink(env):
-    '''test the --hardlink option'''
+def test_pull_extra(env):
+    '''test the --extra option'''
 
     # make the origin repo
     make_origin(env)
@@ -212,16 +212,16 @@ def test_pull_hardlink(env):
     # clone it
     clone = env.clone(cache_dir='clone_cache')
 
-    # now pull a single file and also specify an extra hardlink path
+    # now pull a single file and also specify an extra path
     alt_foo = join(env.root_dir, 'alt', 'foo')
-    check_output(['git', 'big', 'pull', 'foo', '--hardlink', alt_foo])
+    check_output(['git', 'big', 'pull', 'foo', '--extra', alt_foo])
 
     # ensure that the alt file appears and that its read-only
     check_alt_hardlink(clone, alt_foo, HELLO_DIGEST)
 
 
-def test_pull_hardlink_dir(env):
-    '''test the --hardlink option with multiple pulls'''
+def test_pull_extra_dir(env):
+    '''test the --extra option with multiple pulls'''
 
     # make the origin repo
     make_origin(env)
@@ -229,9 +229,9 @@ def test_pull_hardlink_dir(env):
     # clone it
     clone = env.clone(cache_dir='clone_cache')
 
-    # now pull a single file and also specify an extra hardlink directory
+    # now pull a single file and also specify an extra directory
     alt_dir = join(env.root_dir, 'alt')
-    check_output(['git', 'big', 'pull', '--hard', '--hardlink', alt_dir])
+    check_output(['git', 'big', 'pull', '--hard', '--extra', alt_dir])
 
     # ensure that the alt files appear and that they're read-only
     check_alt_hardlink(clone, join(alt_dir, 'foo'), HELLO_DIGEST)

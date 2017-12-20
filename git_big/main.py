@@ -503,7 +503,7 @@ class App(object):
             self.depot.put(entry)
         self.depot.save_refs(self._find_reachable_objects())
 
-    def cmd_pull(self, paths=[], soft=True, hardlink=None):
+    def cmd_pull(self, paths=[], soft=True, extra=None):
         if paths:
             soft = False
         entries = list(self._entries(paths=paths))
@@ -539,15 +539,15 @@ class App(object):
                                entry.rel_path)
                     raise SystemExit(1)
                 # if specified, add an extra hardlink to a user-defined location
-                if hardlink:
+                if extra:
                     if multi:
                         # if multiple paths should be pulled,
                         # treat the specified hardlink path as a directory
                         filename = os.path.basename(entry.working_path)
-                        extra_path = os.path.join(hardlink, filename)
+                        extra_path = os.path.join(extra, filename)
                     else:
                         # otherwise treat the hardlink as a path to the target
-                        extra_path = hardlink
+                        extra_path = extra
                     click.echo('Linking: %s -> %s' % (entry.cache_path,
                                                       extra_path))
                     extra_dir = os.path.dirname(extra_path)
@@ -937,12 +937,12 @@ def cmd_push():
 @cli.command('pull')
 @click.argument('paths', nargs=-1, type=click.Path())
 @click.option('--soft/--hard', default=True)
-@click.option('--hardlink', type=click.Path(writable=True, resolve_path=True))
-def cmd_pull(paths, soft, hardlink):
+@click.option('--extra', type=click.Path(writable=True, resolve_path=True))
+def cmd_pull(paths, soft, extra):
     '''Pull big files.
     Downloads big files from any configured depot.
     '''
-    App().cmd_pull(paths=paths, soft=soft, hardlink=hardlink)
+    App().cmd_pull(paths=paths, soft=soft, extra=extra)
 
 
 @cli.command('drop')
