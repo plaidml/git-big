@@ -503,14 +503,19 @@ class App(object):
             self.depot.put(entry)
         self.depot.save_refs(self._find_reachable_objects())
 
-    def cmd_pull(self, paths=[], soft=True):
+    def cmd_pull(self, paths=[], soft=True, hardlink=None):
         if paths:
             soft = False
+        entries = list(self._entries(paths=paths))
+        if paths and not entries:
+            click.echo('Nothing to pull.')
+            raise SystemExit(1)
+        multi = len(entries) > 1
         # clear the anchors on each full pull
         if os.path.exists(self.config.anchors_dir) and not paths:
             shutil.rmtree(self.config.anchors_dir)
         # now go thru the index and populate all the anchors
-        for entry in self._entries(paths=paths):
+        for entry in entries:
             # grab a copy from the depot if it exists
             if not entry.in_cache and self.depot and not soft:
                 self.depot.get(entry)
@@ -533,6 +538,22 @@ class App(object):
                     click.echo('Pull aborted, dirty file detected: "%s"' %
                                entry.rel_path)
                     raise SystemExit(1)
+                # if specified, add an extra hardlink to a user-defined location
+                if hardlink:
+                    if multi:
+                        # if multiple paths should be pulled,
+                        # treat the specified hardlink path as a directory
+                        filename = os.path.basename(entry.working_path)
+                        extra_path = os.path.join(hardlink, filename)
+                    else:
+                        # otherwise treat the hardlink as a path to the target
+                        extra_path = hardlink
+                    click.echo('Linking: %s -> %s' % (entry.cache_path,
+                                                      extra_path))
+                    extra_dir = os.path.dirname(extra_path)
+                    if not os.path.exists(extra_dir):
+                        os.makedirs(extra_dir)
+                    os.link(entry.cache_path, extra_path)
             else:
                 click.echo('Missing object for file: "%s"' % entry.rel_path)
         self.depot.save_refs(self._find_reachable_objects())
@@ -916,11 +937,12 @@ def cmd_push():
 @cli.command('pull')
 @click.argument('paths', nargs=-1, type=click.Path())
 @click.option('--soft/--hard', default=True)
-def cmd_pull(paths, soft):
+@click.option('--hardlink', type=click.Path(writable=True, resolve_path=True))
+def cmd_pull(paths, soft, hardlink):
     '''Pull big files.
     Downloads big files from any configured depot.
     '''
-    App().cmd_pull(paths=paths, soft=soft)
+    App().cmd_pull(paths=paths, soft=soft, hardlink=hardlink)
 
 
 @cli.command('drop')

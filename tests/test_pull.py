@@ -16,11 +16,13 @@ from __future__ import print_function
 
 import os
 from os.path import isfile, islink, join
-from subprocess import check_call, check_output
+from subprocess import call, check_call, check_output
 
 # pylint: disable=unused-argument,W0621
 from conftest import (HELLO_CONTENT, HELLO_DIGEST, WORLD_CONTENT, WORLD_DIGEST,
                       check_locked_file, check_status)
+
+import pytest
 
 
 def make_origin(env):
@@ -181,3 +183,56 @@ def test_pull_file(env):
 
     assert isfile(join(clone.repo_dir, 'foo'))
     assert isfile(join(clone.repo_dir, 'bar'))
+
+    # pull an invalid file
+    ret = call(['git', 'big', 'pull', 'does_not_exist'])
+    assert ret != 0
+
+
+def check_alt_hardlink(env, file_path, digest):
+    root_dir = env.repo_dir
+    cache_path = os.path.join(env.cache_dir, 'objects', digest[:2],
+                              digest[2:4], digest)
+
+    assert os.path.isfile(file_path)
+    assert os.path.isfile(cache_path)
+    assert os.stat(file_path).st_ino == os.stat(cache_path).st_ino
+
+    with pytest.raises(Exception):
+        with open(file_path) as file_:
+            file_.write('fail')
+
+
+def test_pull_hardlink(env):
+    '''test the --hardlink option'''
+
+    # make the origin repo
+    make_origin(env)
+
+    # clone it
+    clone = env.clone(cache_dir='clone_cache')
+
+    # now pull a single file and also specify an extra hardlink path
+    alt_foo = join(env.root_dir, 'alt', 'foo')
+    check_output(['git', 'big', 'pull', 'foo', '--hardlink', alt_foo])
+
+    # ensure that the alt file appears and that its read-only
+    check_alt_hardlink(clone, alt_foo, HELLO_DIGEST)
+
+
+def test_pull_hardlink_dir(env):
+    '''test the --hardlink option with multiple pulls'''
+
+    # make the origin repo
+    make_origin(env)
+
+    # clone it
+    clone = env.clone(cache_dir='clone_cache')
+
+    # now pull a single file and also specify an extra hardlink directory
+    alt_dir = join(env.root_dir, 'alt')
+    check_output(['git', 'big', 'pull', '--hard', '--hardlink', alt_dir])
+
+    # ensure that the alt files appear and that they're read-only
+    check_alt_hardlink(clone, join(alt_dir, 'foo'), HELLO_DIGEST)
+    check_alt_hardlink(clone, join(alt_dir, 'bar'), WORLD_DIGEST)
