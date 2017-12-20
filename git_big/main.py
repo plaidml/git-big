@@ -528,7 +528,7 @@ class App(object):
                     os.link(entry.cache_path, entry.anchor_path)
                 # add a symlink from the working path to the anchor
                 if not entry.in_working:
-                    click.echo('Linking: %s -> %s' % (entry.digest,
+                    click.echo('Linking: %s -> %s' % (entry.digest[:8],
                                                       entry.rel_path))
                     entry_dir = os.path.dirname(entry.working_path)
                     if not os.path.exists(entry_dir):
@@ -548,7 +548,7 @@ class App(object):
                     else:
                         # otherwise treat the hardlink as a path to the target
                         extra_path = extra
-                    click.echo('Linking: %s -> %s' % (entry.digest,
+                    click.echo('Linking: %s -> %s' % (entry.digest[:8],
                                                       extra_path))
                     extra_dir = os.path.dirname(extra_path)
                     if not os.path.exists(extra_dir):
