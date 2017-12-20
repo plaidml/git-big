@@ -548,7 +548,7 @@ class App(object):
                     else:
                         # otherwise treat the hardlink as a path to the target
                         extra_path = extra
-                    click.echo('Linking: %s -> %s' % (entry.cache_path,
+                    click.echo('Linking: %s -> %s' % (entry.digest,
                                                       extra_path))
                     extra_dir = os.path.dirname(extra_path)
                     if not os.path.exists(extra_dir):
