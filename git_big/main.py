@@ -24,12 +24,14 @@ import shutil
 import socket
 import stat
 import subprocess
+import tempfile
 import uuid
 
 import click
 import progressbar
 
 import git_big.storage
+
 from . import __version__
 
 BLOCKSIZE = 1024 * 1024
@@ -352,7 +354,7 @@ class Depot(object):
             click.echo('Object missing from depot: %s' % entry.digest)
             return
         # Make a temp location for download until we verify it's good
-        pending_path = os.path.join(self.tmp_dir, entry.digest)
+        pending_path = tempfile.mkstemp(dir=self.tmp_dir)
         tracker_path = os.path.join(self.tmp_dir, entry.digest + '.tracker')
         self.__storage.get_file(entry.depot_path, pending_path, tracker_path)
         # Finalize and rename
