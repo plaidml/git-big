@@ -24,12 +24,14 @@ import shutil
 import socket
 import stat
 import subprocess
+import tempfile
 import uuid
 
 import click
 import progressbar
 
 import git_big.storage
+
 from . import __version__
 
 BLOCKSIZE = 1024 * 1024
@@ -352,7 +354,8 @@ class Depot(object):
             click.echo('Object missing from depot: %s' % entry.digest)
             return
         # Make a temp location for download until we verify it's good
-        pending_path = os.path.join(self.tmp_dir, entry.digest)
+        tmp = tempfile.mkstemp(dir=self.tmp_dir)
+        pending_path = tmp[1]
         tracker_path = os.path.join(self.tmp_dir, entry.digest + '.tracker')
         self.__storage.get_file(entry.depot_path, pending_path, tracker_path)
         # Finalize and rename
@@ -360,6 +363,7 @@ class Depot(object):
         if not os.path.exists(cache_dir):
             os.makedirs(cache_dir)
         os.rename(pending_path, entry.cache_path)
+        os.close(tmp[0])
         # Lock and add to cache
         lock_file(entry.cache_path)
         self.index.add_digest(entry.digest, entry._depot_size)
@@ -503,14 +507,19 @@ class App(object):
             self.depot.put(entry)
         self.depot.save_refs(self._find_reachable_objects())
 
-    def cmd_pull(self, paths=[], soft=True):
+    def cmd_pull(self, paths=[], soft=True, extra=None):
         if paths:
             soft = False
+        entries = list(self._entries(paths=paths))
+        if paths and not entries:
+            click.echo('Nothing to pull.')
+            raise SystemExit(1)
+        multi = len(entries) > 1
         # clear the anchors on each full pull
         if os.path.exists(self.config.anchors_dir) and not paths:
             shutil.rmtree(self.config.anchors_dir)
         # now go thru the index and populate all the anchors
-        for entry in self._entries(paths=paths):
+        for entry in entries:
             # grab a copy from the depot if it exists
             if not entry.in_cache and self.depot and not soft:
                 self.depot.get(entry)
@@ -523,7 +532,7 @@ class App(object):
                     os.link(entry.cache_path, entry.anchor_path)
                 # add a symlink from the working path to the anchor
                 if not entry.in_working:
-                    click.echo('Linking: %s -> %s' % (entry.digest,
+                    click.echo('Linking: %s -> %s' % (entry.digest[:8],
                                                       entry.rel_path))
                     entry_dir = os.path.dirname(entry.working_path)
                     if not os.path.exists(entry_dir):
@@ -533,6 +542,22 @@ class App(object):
                     click.echo('Pull aborted, dirty file detected: "%s"' %
                                entry.rel_path)
                     raise SystemExit(1)
+                # if specified, add an extra hardlink to a user-defined location
+                if extra:
+                    if multi:
+                        # if multiple paths should be pulled,
+                        # treat the specified hardlink path as a directory
+                        filename = os.path.basename(entry.working_path)
+                        extra_path = os.path.join(extra, filename)
+                    else:
+                        # otherwise treat the hardlink as a path to the target
+                        extra_path = extra
+                    click.echo('Linking: %s -> %s' % (entry.digest[:8],
+                                                      extra_path))
+                    extra_dir = os.path.dirname(extra_path)
+                    if not os.path.exists(extra_dir):
+                        os.makedirs(extra_dir)
+                    os.link(entry.cache_path, extra_path)
             else:
                 click.echo('Missing object for file: "%s"' % entry.rel_path)
         self.depot.save_refs(self._find_reachable_objects())
@@ -916,11 +941,12 @@ def cmd_push():
 @cli.command('pull')
 @click.argument('paths', nargs=-1, type=click.Path())
 @click.option('--soft/--hard', default=True)
-def cmd_pull(paths, soft):
+@click.option('--extra', type=click.Path(writable=True, resolve_path=True))
+def cmd_pull(paths, soft, extra):
     '''Pull big files.
     Downloads big files from any configured depot.
     '''
-    App().cmd_pull(paths=paths, soft=soft)
+    App().cmd_pull(paths=paths, soft=soft, extra=extra)
 
 
 @cli.command('drop')
