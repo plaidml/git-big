@@ -354,7 +354,8 @@ class Depot(object):
             click.echo('Object missing from depot: %s' % entry.digest)
             return
         # Make a temp location for download until we verify it's good
-        pending_path = tempfile.mkstemp(dir=self.tmp_dir)
+        tmp = tempfile.mkstemp(dir=self.tmp_dir)
+        pending_path = tmp[1]
         tracker_path = os.path.join(self.tmp_dir, entry.digest + '.tracker')
         self.__storage.get_file(entry.depot_path, pending_path, tracker_path)
         # Finalize and rename
@@ -362,6 +363,7 @@ class Depot(object):
         if not os.path.exists(cache_dir):
             os.makedirs(cache_dir)
         os.rename(pending_path, entry.cache_path)
+        os.close(tmp[0])
         # Lock and add to cache
         lock_file(entry.cache_path)
         self.index.add_digest(entry.digest, entry._depot_size)
