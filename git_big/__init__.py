@@ -13,3 +13,15 @@
 # limitations under the License.
 
 __version__ = '0.5.1'
+
+import platform
+if platform.system() == 'Windows':
+   import os
+   import os.path
+   import win32file
+   os.link = lambda(src, dest): win32file.CreateHardLink(
+       os.path.abspath(dest), os.path.abspath(src)
+   )
+   os.symlink = lambda(src, dest): win32file.CreateSymbolicLink(
+       os.path.abspath(dest), os.path.abspath(src), 0x2
+   )

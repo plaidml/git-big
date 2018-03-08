@@ -31,6 +31,7 @@ setup(
         'boto',
         'click',
         'progressbar2',
+        'pywin32;platform_system=="Windows"'
     ],
     classifiers=[
         "Development Status :: 4 - Beta",
@@ -40,7 +41,9 @@ setup(
         "Natural Language :: English",
         "Operating System :: Unix",
         "Operating System :: MacOS :: MacOS X",
+        "Operating System :: Microsoft :: Windows :: Windows 10"
         "Programming Language :: Python :: 2.7",
+        "Programming Language :: Python :: 3.6",
         "Topic :: Software Development :: Libraries",
         "Topic :: Software Development :: Version Control",
         "Topic :: Utilities",
