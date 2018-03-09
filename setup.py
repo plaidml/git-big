@@ -45,7 +45,6 @@ setup(
         "Operating System :: MacOS :: MacOS X",
         "Operating System :: Microsoft :: Windows :: Windows 10"
         "Programming Language :: Python :: 2.7",
-        "Programming Language :: Python :: 3.6",
         "Topic :: Software Development :: Libraries",
         "Topic :: Software Development :: Version Control",
         "Topic :: Utilities",
