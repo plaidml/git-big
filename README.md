@@ -1,3 +1,4 @@
+[![Build Status](https://travis-ci.org/vertexai/git-big.svg?branch=master)]()
 # git-big
 
 Git Big is a command line extension to Git for managing
