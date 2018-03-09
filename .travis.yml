@@ -5,8 +5,5 @@ matrix:
   - python: "2.7"
   - python: "3.6"
 
-before_install:
-  - git clone http://github.com/vertexai/git-big
-
 script:
   - make test
