@@ -38,6 +38,16 @@ BLOCKSIZE = 1024 * 1024
 CTX_SETTINGS = dict(help_option_names=['-h', '--help'])
 DEV_NULL = open(os.devnull, 'w')
 
+import platform
+if platform.system() == "Windows":
+    import win32api, win32con
+    rkey = win32api.RegOpenKey(win32con.HKEY_LOCAL_MACHINE, "SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock", 0, win32con.KEY_READ)
+    (val, typ) = win32api.RegQueryValueEx(rkey, "AllowDevelopmentWithoutDevLicense")
+    symlinks = subprocess.check_output(['git', 'config', 'core.symlinks'], shell=True)
+    if val != 1 or not 'true' in symlinks:
+        print("git-big requires symlinks to be enabled, run git-big-windows-setup")
+        exit(1)
+
 
 def git(*args):
     return subprocess.check_output(['git'] + map(str, args), stderr=DEV_NULL)
@@ -362,8 +372,8 @@ class Depot(object):
         cache_dir = os.path.dirname(entry.cache_path)
         if not os.path.exists(cache_dir):
             os.makedirs(cache_dir)
-        os.rename(pending_path, entry.cache_path)
         os.close(tmp[0])
+        os.rename(pending_path, entry.cache_path)
         # Lock and add to cache
         lock_file(entry.cache_path)
         self.index.add_digest(entry.digest, entry._depot_size)

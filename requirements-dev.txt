@@ -11,6 +11,7 @@ bpython==0.16
 certifi==2017.11.5        # via requests
 chardet==3.0.4            # via requests
 click==6.7                # via pip-tools
+colorama==0.3.9           # via pylint, pytest
 configparser==3.5.0       # via pylint
 curtsies==0.2.11          # via bpython
 enum34==1.1.6             # via astroid

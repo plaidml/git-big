@@ -19,6 +19,9 @@ from subprocess import check_output
 
 import pytest
 
+import git_big
+git_big.setupForWindows()
+
 HELLO_CONTENT = 'hello'
 HELLO_DIGEST = '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824'
 WORLD_CONTENT = 'world'

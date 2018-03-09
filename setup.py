@@ -30,8 +30,10 @@ setup(
         'apache-libcloud==1.5.0',
         'boto',
         'click',
+        'lockfile',
         'progressbar2',
-        'pywin32;platform_system=="Windows"'
+        'jaraco.windows;platform_system=="Windows"',
+        'pywin32;platform_system=="Windows"',
     ],
     classifiers=[
         "Development Status :: 4 - Beta",
@@ -48,6 +50,7 @@ setup(
         "Topic :: Software Development :: Version Control",
         "Topic :: Utilities",
     ],
+    scripts=['git-big-windows-setup'],
     entry_points={'console_scripts': [
         'git-big=git_big.main:cli',
     ]}, )

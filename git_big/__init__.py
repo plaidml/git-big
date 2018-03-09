@@ -12,16 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-__version__ = '0.5.1'
+__version__ = '0.6.0'
 
+import os
+import os.path
 import platform
-if platform.system() == 'Windows':
-   import os
-   import os.path
-   import win32file
-   os.link = lambda(src, dest): win32file.CreateHardLink(
-       os.path.abspath(dest), os.path.abspath(src)
-   )
-   os.symlink = lambda(src, dest): win32file.CreateSymbolicLink(
-       os.path.abspath(dest), os.path.abspath(src), 0x2
-   )
+import stat
+
+def setupForWindows():
+    if platform.system() == 'Windows':
+         import jaraco.windows.filesystem as fs
+         def linkit(src, dest):
+            fs.link(src, dest)
+            os.chmod(dest, stat.S_IWRITE | stat.S_IREAD) 
+         if not hasattr(os, 'symlink'):
+             os.link = linkit
+             os.symlink = lambda src, dest: fs.symlink(src, dest, 0x2)
+             os.path.islink = fs.islink
+         if not hasattr(os, 'readlink'):
+             os.readlink = fs.readlink
+
+setupForWindows()

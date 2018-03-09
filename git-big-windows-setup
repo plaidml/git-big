@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import os
 import subprocess
 import sys
@@ -34,7 +36,8 @@ def spawn_as_administrator():
 def main():
     rkey = win32api.RegOpenKey(win32con.HKEY_LOCAL_MACHINE, "SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock", 0, win32con.KEY_SET_VALUE)
     win32api.RegSetValueEx(rkey, "AllowDevelopmentWithoutDevLicense", 0, win32con.REG_DWORD, 1)
-    cmds = [['git', 'config', '--system', 'core.symlinks', 'true'],
+    cmds = [['git', 'config', '-f', os.path.abspath('/ProgramData/Git/config'), 'core.symlinks', 'true'],
+            ['git', 'config', '--system', 'core.symlinks', 'true'],
             ['git', 'config', '--global', 'core.symlinks', 'true'],
             ['git', 'config', 'core.symlinks', 'true'],]
     for cmd in cmds:
@@ -46,6 +49,6 @@ if __name__ == '__main__':
     print("Enabling git core.symlinks system wide")
     ret = spawn_as_administrator()
     if ret is None:
-      main()
+        main()
     elif ret != 0:
       print("Error configuring system.")

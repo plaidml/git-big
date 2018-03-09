@@ -58,9 +58,6 @@ def test_fresh_clone(env):
     assert islink(join(clone.repo_dir, 'foo'))
     assert islink(join(clone.repo_dir, 'bar'))
 
-    assert not isfile(join(clone.repo_dir, 'foo'))
-    assert not isfile(join(clone.repo_dir, 'bar'))
-
     # pull big files (now hard)
     check_output(['git', 'big', 'pull', '--hard'])
 
@@ -170,13 +167,13 @@ def test_pull_file(env):
     check_output(['git', 'big', 'pull', 'foo'])
 
     assert isfile(join(clone.repo_dir, 'foo'))
-    assert not isfile(join(clone.repo_dir, 'bar'))
+    assert islink(join(clone.repo_dir, 'bar'))
 
     # pulling a file again is ok
     check_output(['git', 'big', 'pull', 'foo'])
 
     assert isfile(join(clone.repo_dir, 'foo'))
-    assert not isfile(join(clone.repo_dir, 'bar'))
+    assert islink(join(clone.repo_dir, 'bar'))
 
     # pull another big file
     check_output(['git', 'big', 'pull', 'bar'])
