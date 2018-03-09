@@ -3,11 +3,7 @@ language: python
 matrix:
   include:
   - python: "2.7"
-    env:
-      - BZL_PY_VER=PY2
   - python: "3.6"
-    env: 
-      - BZL_PY_VER=PY3
 
 before_install:
   - git clone http://github.com/vertexai/git-big
