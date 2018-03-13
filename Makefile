@@ -36,7 +36,7 @@ ${WHEEL}: setup.py git_big/*.py
 
 publish: ${WHEEL}
 	git tag ${VERSION}
-	git push --tag
+	git push upstream --tag
 	twine upload ${WHEEL}
 
 install:

@@ -43,7 +43,7 @@ setup(
         "Natural Language :: English",
         "Operating System :: Unix",
         "Operating System :: MacOS :: MacOS X",
-        "Operating System :: Microsoft :: Windows :: Windows 10"
+        "Operating System :: Microsoft :: Windows :: Windows 10",
         "Programming Language :: Python :: 2.7",
         "Topic :: Software Development :: Libraries",
         "Topic :: Software Development :: Version Control",
@@ -52,4 +52,4 @@ setup(
     scripts=['git-big-windows-setup'],
     entry_points={'console_scripts': [
         'git-big=git_big.main:cli',
-    ]}, )
+    ]},)
