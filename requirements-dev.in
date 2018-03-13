@@ -1,5 +1,4 @@
 bpython
-lockfile
 pip-review
 pip-tools
 pylint

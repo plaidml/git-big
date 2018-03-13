@@ -17,6 +17,7 @@ from __future__ import print_function
 import collections
 import getpass
 import hashlib
+import io
 import json
 import os
 import re
@@ -37,6 +38,21 @@ from . import __version__
 BLOCKSIZE = 1024 * 1024
 CTX_SETTINGS = dict(help_option_names=['-h', '--help'])
 DEV_NULL = open(os.devnull, 'w')
+
+import platform
+if platform.system() == "Windows":
+    import win32api, win32con
+    rkey = win32api.RegOpenKey(win32con.HKEY_LOCAL_MACHINE, "SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock", 0, win32con.KEY_READ)
+    (val, typ) = win32api.RegQueryValueEx(rkey, "AllowDevelopmentWithoutDevLicense")
+    symlinks = subprocess.check_output(['git', 'config', 'core.symlinks'], shell=True)
+    if val != 1 or not 'true' in symlinks:
+        print("git-big requires symlinks to be enabled, run git-big-windows-setup")
+        exit(1)
+    orig_relpath = os.path.relpath
+    orig_join = os.path.join
+    os.path.join = lambda start, *rest: orig_join(start, *rest).replace(os.path.sep,'/')
+    os.path.relpath = lambda to, rel: orig_relpath(
+        to, rel).replace(os.path.sep, '/')
 
 
 def git(*args):
@@ -316,9 +332,9 @@ class DepotIndex(object):
         dir_path = os.path.dirname(self.path)
         if not os.path.exists(dir_path):
             os.makedirs(dir_path)
-        with open(self.path, 'w') as file_:
+        with io.open(self.path, 'w', newline='\n') as file_:
             for digest, size in self.__index.items():
-                file_.write('{} {}\n'.format(digest, size))
+                file_.write(u'{} {}\n'.format(digest, size))
 
 
 class Depot(object):
@@ -326,6 +342,8 @@ class Depot(object):
         self.config = config.depot
         self.repo = repo
         self.__storage = git_big.storage.get_driver(self.config)
+        if not os.path.exists(config.cache_dir):
+            os.makedirs(config.cache_dir)
         self.index = DepotIndex(os.path.join(config.cache_dir, 'index'))
         self.refs_path = self.config.make_path('refs', config.uuid)
         self.tmp_dir = os.path.join(config.cache_dir, 'tmp')
@@ -362,8 +380,8 @@ class Depot(object):
         cache_dir = os.path.dirname(entry.cache_path)
         if not os.path.exists(cache_dir):
             os.makedirs(cache_dir)
-        os.rename(pending_path, entry.cache_path)
         os.close(tmp[0])
+        os.rename(pending_path, entry.cache_path)
         # Lock and add to cache
         lock_file(entry.cache_path)
         self.index.add_digest(entry.digest, entry._depot_size)
@@ -623,9 +641,9 @@ class App(object):
             file_.write('\n')
 
         if self.repo_config.files:
-            with open(self.repo_config_path, 'w') as file_:
-                json.dump(dict(self.repo_config), file_, indent=4)
-                file_.write('\n')
+            with io.open(self.repo_config_path, 'w', newline='\n') as file_:
+                jscfg = json.dumps(dict(self.repo_config), indent=4, encoding='utf-8')
+                file_.write(u'' + jscfg + '\n')
             self.repo.index.add([self.repo_config_path])
         else:
             if os.path.exists(self.repo_config_path):
@@ -645,9 +663,9 @@ class App(object):
         if to_add not in lines:
             lines.append(to_add)
             changed = True
-        with open(path, 'w') as file_:
+        with io.open(path, 'w', newline='\n') as file_:
             for line in lines:
-                file_.write(line + '\n')
+                file_.write(u'' + line + '\n')
         return changed
 
     def _install_hooks(self):
