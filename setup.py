@@ -30,6 +30,7 @@ setup(
         'apache-libcloud==1.5.0',
         'boto',
         'click',
+        'lockfile',
         'progressbar2',
         'jaraco.windows;platform_system=="Windows"',
         'pywin32;platform_system=="Windows"',

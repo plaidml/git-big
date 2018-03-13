@@ -29,6 +29,7 @@ clean:
 	pip-compile $<
 
 requirements-dev.txt: requirements-dev.in
+	             dos2unix requirements.txt
 
 ${WHEEL}: setup.py git_big/*.py
 	python $< bdist_wheel
