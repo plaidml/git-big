@@ -17,6 +17,7 @@ from __future__ import print_function
 import collections
 import getpass
 import hashlib
+import io
 import json
 import os
 import re
@@ -331,9 +332,9 @@ class DepotIndex(object):
         dir_path = os.path.dirname(self.path)
         if not os.path.exists(dir_path):
             os.makedirs(dir_path)
-        with open(self.path, 'w') as file_:
+        with io.open(self.path, 'w', newline='\n') as file_:
             for digest, size in self.__index.items():
-                file_.write('{} {}\n'.format(digest, size))
+                file_.write(u'{} {}\n'.format(digest, size))
 
 
 class Depot(object):
@@ -341,6 +342,8 @@ class Depot(object):
         self.config = config.depot
         self.repo = repo
         self.__storage = git_big.storage.get_driver(self.config)
+        if not os.path.exists(config.cache_dir):
+            os.makedirs(config.cache_dir)
         self.index = DepotIndex(os.path.join(config.cache_dir, 'index'))
         self.refs_path = self.config.make_path('refs', config.uuid)
         self.tmp_dir = os.path.join(config.cache_dir, 'tmp')
@@ -638,9 +641,9 @@ class App(object):
             file_.write('\n')
 
         if self.repo_config.files:
-            with open(self.repo_config_path, 'w') as file_:
-                json.dump(dict(self.repo_config), file_, indent=4)
-                file_.write('\n')
+            with io.open(self.repo_config_path, 'w', newline='\n') as file_:
+                jscfg = json.dumps(dict(self.repo_config), indent=4, encoding='utf-8')
+                file_.write(u'' + jscfg + '\n')
             self.repo.index.add([self.repo_config_path])
         else:
             if os.path.exists(self.repo_config_path):
@@ -660,9 +663,9 @@ class App(object):
         if to_add not in lines:
             lines.append(to_add)
             changed = True
-        with open(path, 'w') as file_:
+        with io.open(path, 'w', newline='\n') as file_:
             for line in lines:
-                file_.write(line + '\n')
+                file_.write(u'' + line + '\n')
         return changed
 
     def _install_hooks(self):
