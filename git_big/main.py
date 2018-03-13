@@ -47,6 +47,11 @@ if platform.system() == "Windows":
     if val != 1 or not 'true' in symlinks:
         print("git-big requires symlinks to be enabled, run git-big-windows-setup")
         exit(1)
+    orig_relpath = os.path.relpath
+    orig_join = os.path.join
+    os.path.join = lambda start, *rest: orig_join(start, *rest).replace(os.path.sep,'/')
+    os.path.relpath = lambda to, rel: orig_relpath(
+        to, rel).replace(os.path.sep, '/')
 
 
 def git(*args):

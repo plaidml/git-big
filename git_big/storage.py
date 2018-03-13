@@ -15,8 +15,14 @@
 from __future__ import print_function
 
 import os
-import StringIO
-import urlparse
+try:
+    import StringIO
+except:
+    from io import StringIO
+try:
+    import urlparse
+except:
+    from urllib.parse import urlparse
 
 import boto
 import libcloud
