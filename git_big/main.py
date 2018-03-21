@@ -408,7 +408,7 @@ class Depot(object):
     def save_refs(self, refs):
         metadata = {
             'host': socket.gethostname(),
-            'user': getpass.getuser(),
+            'user': getpass.getuser() if platform.system() != "Windows" else os.path.split(os.path.expanduser('~'))[-1],
             'path': self.repo.git_dir,
         }
         buf = '\n'.join(refs)
