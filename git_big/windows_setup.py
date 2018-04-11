@@ -76,6 +76,10 @@ def cli(allocate_console):
             click.echo('  ' + ' '.join(cmd))
             subprocess.check_call(cmd, shell=True)
         click.echo('Successfully configured system for use with git-big.')
+        click.echo(
+            'N.B. You may need to run "git config core.symlinks true" in your local repositories'
+        )
+
     finally:
         if allocate_console:
             click.pause()

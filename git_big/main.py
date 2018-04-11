@@ -40,13 +40,20 @@ BLOCKSIZE = 1024 * 1024
 CTX_SETTINGS = dict(help_option_names=['-h', '--help'])
 DEV_NULL = open(os.devnull, 'w')
 
-if platform.system() == "Windows":
+if platform.system() == 'Windows':
     import win32api, win32con
-    rkey = win32api.RegOpenKey(win32con.HKEY_LOCAL_MACHINE, "SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock", 0, win32con.KEY_READ)
-    (val, typ) = win32api.RegQueryValueEx(rkey, "AllowDevelopmentWithoutDevLicense")
-    symlinks = subprocess.check_output(['git', 'config', 'core.symlinks'], shell=True)
+    rkey = win32api.RegOpenKey(
+        win32con.HKEY_LOCAL_MACHINE,
+        'SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock', 0,
+        win32con.KEY_READ)
+    (val, typ) = win32api.RegQueryValueEx(rkey,
+                                          'AllowDevelopmentWithoutDevLicense')
+    symlinks = subprocess.check_output(
+        ['git', 'config', 'core.symlinks'], shell=True)
     if val != 1 or not 'true' in symlinks:
-        print("git-big requires symlinks to be enabled, run git-big-windows-setup")
+        print(
+            'git-big requires symlinks to be enabled; run git-big-windows-setup'
+        )
         exit(1)
     orig_relpath = os.path.relpath
     orig_join = os.path.join
@@ -119,7 +126,8 @@ class DepotConfig(object):
 
 
 class UserConfig(object):
-    default_cache_dir = os.path.expanduser('~/.cache/git-big')
+    default_cache_dir = os.path.expanduser(
+        os.path.join('~', '.cache', 'git-big'))
 
     def __init__(self, **kwargs):
         self.version = 1
@@ -274,7 +282,7 @@ def compute_digest(path, rel_path):
 
 
 def lock_file(path):
-    '''remove writable permissions'''
+    """remove writable permissions"""
     # click.echo('Locking file: %s' % path)
     if not os.path.exists(path):
         return
@@ -285,7 +293,7 @@ def lock_file(path):
 
 
 def unlock_file(path):
-    '''add writable permissions'''
+    """add writable permissions"""
     if not os.path.exists(path):
         return
     mode = os.stat(path).st_mode
@@ -294,7 +302,7 @@ def unlock_file(path):
 
 
 def make_executable(path):
-    '''add executable permissions'''
+    """add executable permissions"""
     if not os.path.exists(path):
         return
     mode = os.stat(path).st_mode
@@ -406,9 +414,13 @@ class Depot(object):
         return (obj, refs)
 
     def save_refs(self, refs):
+        if platform.system() != 'Windows':
+            user = getpass.getuser()
+        else:
+            user = os.path.split(os.path.expanduser('~'))[-1]
         metadata = {
             'host': socket.gethostname(),
-            'user': getpass.getuser() if platform.system() != "Windows" else os.path.split(os.path.expanduser('~'))[-1],
+            'user': user,
             'path': self.repo.git_dir,
         }
         buf = '\n'.join(refs)
@@ -423,7 +435,7 @@ class App(object):
         self.repo = GitRepository()
 
         # Load user configuration, creating anew if none exists
-        self.user_config_path = os.path.expanduser('~/.gitbig')
+        self.user_config_path = os.path.expanduser(os.path.join('~', '.gitbig'))
         if os.path.exists(self.user_config_path):
             with open(self.user_config_path, 'r') as file_:
                 self.user_config = UserConfig(**json.load(file_))
@@ -449,6 +461,12 @@ class App(object):
             self.depot = Depot(self.config, self.repo)
         else:
             self.depot = None
+
+    def _check_depot(self, present_participle):
+        if not self.depot:
+            raise click.ClickException(
+                'A depot must be configured before {}; run "git big set-depot"'.
+                format(present_participle))
 
     def cmd_init(self):
         self._save_config()
@@ -518,14 +536,13 @@ class App(object):
         self._save_config()
 
     def cmd_push(self):
-        if not self.depot:
-            click.echo('A depot must be configured before pushing.')
-            return
+        self._check_depot('pushing')
         for entry in self._entries():
             self.depot.put(entry)
         self.depot.save_refs(self._find_reachable_objects())
 
     def cmd_pull(self, paths=[], soft=True, extra=None):
+        self._check_depot('pulling')
         if paths:
             soft = False
         entries = list(self._entries(paths=paths))
@@ -581,9 +598,7 @@ class App(object):
         self.depot.save_refs(self._find_reachable_objects())
 
     def cmd_drop(self):
-        if not self.depot:
-            click.echo('A depot must be configured.')
-            return
+        self._check_depot('dropping')
         self.depot.delete_refs()
 
     def cmd_reachable(self):
@@ -595,7 +610,7 @@ class App(object):
             click.echo(obj.metadata)
 
     def cmd_check(self):
-        '''Do an integrity check of the local cache'''
+        """Do an integrity check of the local cache"""
         for root, _, files in os.walk(self.config.objects_dir):
             for file_ in files:
                 path = os.path.join(root, file_)
@@ -642,7 +657,8 @@ class App(object):
 
         if self.repo_config.files:
             with io.open(self.repo_config_path, 'w', newline='\n') as file_:
-                jscfg = json.dumps(dict(self.repo_config), indent=4, encoding='utf-8')
+                jscfg = json.dumps(
+                    dict(self.repo_config), indent=4, encoding='utf-8')
                 file_.write(u'' + jscfg + '\n')
             self.repo.index.add([self.repo_config_path])
         else:
@@ -844,7 +860,7 @@ class App(object):
 
 @click.group(context_settings=CTX_SETTINGS)
 def cli():
-    '''git big file manager'''
+    """git big file manager"""
     pass
 
 
@@ -852,7 +868,7 @@ def cli():
 @click.argument('topic', default=None, required=False, nargs=1)
 @click.pass_context
 def help(ctx, topic, **kw):
-    '''Show this message and exit.'''
+    """Show this message and exit."""
     if topic is None:
         click.echo(ctx.parent.get_help())
     else:
@@ -861,14 +877,25 @@ def help(ctx, topic, **kw):
 
 @cli.command('version')
 def cmd_version():
-    '''Print version and exit.'''
+    """Print version and exit."""
     click.echo(__version__)
 
 
 @cli.command('init')
 def cmd_init():
-    '''Initialize a repository.'''
+    """Initialize a repository."""
     App().cmd_init()
+
+
+@cli.command('set-depot')
+@click.option('--url', prompt='Depot URL', help='The URL of the git-big depot')
+@click.option('--secret', prompt=True, help='The git-big depot secret')
+@click.option('--key', prompt=True, help='The git-big depot key')
+def cmd_set_depot(url, secret, key):
+    """Sets the git-big depot in the local git configuration"""
+    git('config', 'git-big.depot.url', url)
+    git('config', 'git-big.depot.key', key)
+    git('config', 'git-big.depot.secret', secret)
 
 
 @cli.command('clone')
@@ -876,7 +903,7 @@ def cmd_init():
 @click.argument('to_path', required=False)
 @click.option('--soft/--hard', default=True)
 def cmd_clone(repo, to_path, soft):
-    '''Clone a repository with big files.'''
+    """Clone a repository with big files."""
     if not to_path:
         to_path = re.split('[:/]', repo.rstrip('/').rstrip('.git'))[-1]
     os.system('git clone %s %s' % (repo, to_path))
@@ -888,41 +915,44 @@ def cmd_clone(repo, to_path, soft):
 
 @cli.command('status')
 def cmd_status():
-    '''View big file status.
+    """View big file status.
     Shows the status of each file recognized by git-big.
-    '''
+    """
     App().cmd_status()
 
 
 @cli.command('add')
 @click.argument('paths', nargs=-1, type=click.Path(exists=True))
 def cmd_add(paths):
-    '''Add big files.
+    """Add big files.
+
     Each specified path will be added to git-big.
     If a path refers to a directory, all files within the directory will be recursively added to the index.
-    '''
+    """
     App().cmd_add(paths)
 
 
 @cli.command('rm')
 @click.argument('paths', nargs=-1, type=click.Path())
 def cmd_remove(paths):
-    '''Remove big files.
+    """Remove big files.
+
     Each specified path will be removed from git-big.
     If a path refers to a directory, all files within the directory will be recursively removed from the index.
-    '''
+    """
     App().cmd_remove(paths)
 
 
 @cli.command('unlock')
 @click.argument('paths', nargs=-1, type=click.Path(exists=True))
 def cmd_unlock(paths):
-    '''Unlock big files.
+    """Unlock big files.
+
     When a file is added to git-big, the working copy is set to read-only mode
     to prevent from accidental overwrites or deletions.
     Use this command to allow the file to be modified.
     The file must be added back to git-big when changes are complete.
-    '''
+    """
     App().cmd_unlock(paths)
 
 
@@ -930,10 +960,11 @@ def cmd_unlock(paths):
 @click.argument('sources', nargs=-1, type=click.Path(exists=True))
 @click.argument('dest', nargs=1, type=click.Path())
 def cmd_move(sources, dest):
-    '''Move big files.
+    """Move big files.
+
     Moves a big file in the same way that git mv would usually work.
     The index will be updated to refer to the new location of moved files.
-    '''
+    """
     App().cmd_move(sources, dest)
 
 
@@ -941,18 +972,20 @@ def cmd_move(sources, dest):
 @click.argument('sources', nargs=-1, type=click.Path(exists=True))
 @click.argument('dest', nargs=1, type=click.Path())
 def cmd_copy(sources, dest):
-    '''Copy big files.
+    """Copy big files.
+
     Copies a big file in the same way that git cp would usually work.
     The index will be updated to refer to the old and new location of copied files.
-    '''
+    """
     App().cmd_copy(sources, dest)
 
 
 @cli.command('push')
 def cmd_push():
-    '''Push big files.
+    """Push big files.
+
     Uploads big files to any configured depot.
-    '''
+    """
     App().cmd_push()
 
 
@@ -961,21 +994,22 @@ def cmd_push():
 @click.option('--soft/--hard', default=True)
 @click.option('--extra', type=click.Path(writable=True, resolve_path=True))
 def cmd_pull(paths, soft, extra):
-    '''Pull big files.
+    """Pull big files.
+
     Downloads big files from any configured depot.
-    '''
+    """
     App().cmd_pull(paths=paths, soft=soft, extra=extra)
 
 
 @cli.command('drop')
 def cmd_drop():
-    '''Internal command'''
+    """Internal command"""
     App().cmd_drop()
 
 
 @cli.group('hooks')
 def cmd_hooks():
-    '''Internal command'''
+    """Internal command"""
     pass
 
 
@@ -991,44 +1025,44 @@ def cmd_hooks_pre_push(remote, url):
 @click.argument('new')
 @click.argument('flag')
 def cmd_hooks_post_checkout(previous, new, flag):
-    '''Internal command'''
+    """Internal command"""
     App().cmd_hooks_post_checkout(previous, new, flag)
 
 
 @cmd_hooks.command('post-merge')
 @click.argument('flag')
 def cmd_hooks_post_merge(flag):
-    '''Internal command'''
+    """Internal command"""
     App().cmd_hooks_post_merge(flag)
 
 
 @cli.group('dev')
 def dev():
-    '''Internal command'''
+    """Internal command"""
     pass
 
 
 @dev.command('reachable')
 def cmd_reachable():
-    '''Internal command'''
+    """Internal command"""
     App().cmd_reachable()
 
 
 @dev.command('check')
 def cmd_check():
-    '''Internal command'''
+    """Internal command"""
     App().cmd_check()
 
 
 @cli.group('filter')
 def cmd_filter():
-    '''Internal command'''
+    """Internal command"""
     pass
 
 
 @cmd_filter.command('process')
 def cmd_process():
-    '''Internal command'''
+    """Internal command"""
     import git_big.filter
     git_big.filter.cmd_process()
 
@@ -1038,5 +1072,5 @@ def cmd_process():
 @click.argument('current', default='default')
 @click.argument('other', default='default')
 def cmd_custom_merge(ancestor, current, other):
-    '''Internal command'''
+    """Internal command"""
     App().cmd_custom_merge(ancestor, current, other)
