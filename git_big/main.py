@@ -20,6 +20,7 @@ import hashlib
 import io
 import json
 import os
+import platform
 import re
 import shutil
 import socket
@@ -39,7 +40,6 @@ BLOCKSIZE = 1024 * 1024
 CTX_SETTINGS = dict(help_option_names=['-h', '--help'])
 DEV_NULL = open(os.devnull, 'w')
 
-import platform
 if platform.system() == "Windows":
     import win32api, win32con
     rkey = win32api.RegOpenKey(win32con.HKEY_LOCAL_MACHINE, "SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock", 0, win32con.KEY_READ)
