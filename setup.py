@@ -15,41 +15,6 @@
 # limitations under the License.
 
 from setuptools import setup
-import git_big
 
-setup(
-    name='git-big',
-    description=
-    'Git Big is a command line extension to Git for managing Write Once Read Many (WORM) files.',
-    version=git_big.__version__,
-    license='Apache 2.0',
-    author='Vertex AI',
-    url='https://github.com/vertexai/git-big',
-    packages=['git_big'],
-    install_requires=[
-        'apache-libcloud==1.5.0',
-        'boto',
-        'click',
-        'lockfile',
-        'progressbar2',
-        'jaraco.windows;platform_system=="Windows"',
-        'pywin32;platform_system=="Windows"',
-    ],
-    classifiers=[
-        "Development Status :: 4 - Beta",
-        "Environment :: Console",
-        "Intended Audience :: Developers",
-        "License :: OSI Approved :: Apache Software License",
-        "Natural Language :: English",
-        "Operating System :: Unix",
-        "Operating System :: MacOS :: MacOS X",
-        "Operating System :: Microsoft :: Windows :: Windows 10",
-        "Programming Language :: Python :: 2.7",
-        "Topic :: Software Development :: Libraries",
-        "Topic :: Software Development :: Version Control",
-        "Topic :: Utilities",
-    ],
-    scripts=['git-big-windows-setup'],
-    entry_points={'console_scripts': [
-        'git-big=git_big.main:cli',
-    ]},)
+if __name__ == '__main__':
+    setup()
