@@ -15,6 +15,7 @@
 from __future__ import print_function
 
 import collections
+import errno
 import getpass
 import hashlib
 import io
@@ -310,6 +311,15 @@ def make_executable(path):
     os.chmod(path, perms | stat.S_IXUSR | stat.S_IXGRP)
 
 
+def rmtree_err_handler(function, path, excinfo):
+    excvalue = excinfo[1]
+    if function in (os.rmdir, os.remove) and excvalue.errno == errno.EACCES:
+        os.chmod(path, stat.S_IWUSR)
+        function(path)
+    else:
+        raise
+
+
 class DepotIndex(object):
     def __init__(self, path):
         self.__index = dict()
@@ -435,7 +445,8 @@ class App(object):
         self.repo = GitRepository()
 
         # Load user configuration, creating anew if none exists
-        self.user_config_path = os.path.expanduser(os.path.join('~', '.gitbig'))
+        self.user_config_path = os.path.expanduser(
+            os.path.join('~', '.gitbig'))
         if os.path.exists(self.user_config_path):
             with open(self.user_config_path, 'r') as file_:
                 self.user_config = UserConfig(**json.load(file_))
@@ -552,7 +563,7 @@ class App(object):
         multi = len(entries) > 1
         # clear the anchors on each full pull
         if os.path.exists(self.config.anchors_dir) and not paths:
-            shutil.rmtree(self.config.anchors_dir)
+            shutil.rmtree(self.config.anchors_dir, onerror=rmtree_err_handler)
         # now go thru the index and populate all the anchors
         for entry in entries:
             # grab a copy from the depot if it exists
