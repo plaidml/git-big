@@ -554,9 +554,10 @@ class App(object):
         self.depot.save_refs(self._find_reachable_objects())
 
     def cmd_pull(self, paths=[], soft=True, extra=None):
-        self._check_depot('pulling')
         if paths:
             soft = False
+        if not soft:
+            self._check_depot('pulling')
         entries = list(self._entries(paths=paths))
         if paths and not entries:
             click.echo('Nothing to pull.')
