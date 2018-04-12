@@ -46,7 +46,7 @@ def _respawn_as_administrator():
     default=False,
     help='allocate a separate output console')
 def cli(allocate_console):
-    """Configures Windows systems for use with git-big"""
+    """Configures Windows systems for git-big."""
 
     if not shell.IsUserAnAdmin():
         return _respawn_as_administrator()

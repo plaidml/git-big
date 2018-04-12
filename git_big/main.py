@@ -18,6 +18,7 @@ import collections
 import errno
 import getpass
 import hashlib
+import importlib
 import io
 import json
 import os
@@ -53,7 +54,7 @@ if platform.system() == 'Windows':
         ['git', 'config', 'core.symlinks'], shell=True)
     if val != 1 or not 'true' in symlinks:
         print(
-            'git-big requires symlinks to be enabled; run git-big-windows-setup'
+            'git-big requires symlinks to be enabled; run `git-big windows-setup`'
         )
         exit(1)
     orig_relpath = os.path.relpath
@@ -1087,3 +1088,8 @@ def cmd_process():
 def cmd_custom_merge(ancestor, current, other):
     """Internal command"""
     App().cmd_custom_merge(ancestor, current, other)
+
+
+if platform.system() == 'Windows':
+    win = importlib.import_module('..windows_setup', 'git_big.main')
+    cli.add_command(win.cli, name='windows-setup')
