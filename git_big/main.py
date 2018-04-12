@@ -605,7 +605,9 @@ class App(object):
                         os.makedirs(extra_dir)
                     os.link(entry.cache_path, extra_path)
             else:
-                click.echo('Missing object for file: "%s"' % entry.rel_path)
+                click.echo(
+                    'File "{}" not available locally; use `git big pull --hard` to download it'.
+                    format(entry.rel_path))
         self.depot.save_refs(self._find_reachable_objects())
 
     def cmd_drop(self):
