@@ -18,18 +18,12 @@ VERSION=$(shell python -c 'import git_big; print(git_big.__version__)')
 
 WHEEL=dist/git_big-${VERSION}-py2-none-any.whl
 
-all: requirements-dev.txt ${WHEEL}
+all: ${WHEEL}
 clean:
-	rm -f requirements*.txt
 	rm -rf build
 	rm -rf dist
+	rm -rf git_big.egg-info
 	find . -name *.pyc -delete
-
-%.txt: %.in
-	pip-compile $<
-
-requirements-dev.txt: requirements-dev.in
-	dos2unix requirements.txt
 
 ${WHEEL}: setup.py git_big/*.py
 	python $< bdist_wheel
@@ -37,10 +31,16 @@ ${WHEEL}: setup.py git_big/*.py
 publish: ${WHEEL}
 	git tag ${VERSION}
 	git push upstream --tag
-	twine upload ${WHEEL}
+	pipenv run twine upload ${WHEEL}
 
 install:
 	pip install -e .
 
-test: install
-	pytest
+dev:
+	pipenv install --dev
+
+test: dev
+	pipenv run py.test tests
+
+tox: dev
+	pipenv run tox

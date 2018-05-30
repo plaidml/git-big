@@ -15,6 +15,7 @@
 from __future__ import print_function
 
 import collections
+import contextlib
 import errno
 import getpass
 import hashlib
@@ -33,6 +34,7 @@ import uuid
 
 import click
 import progressbar
+import six
 
 import git_big.storage
 
@@ -40,7 +42,7 @@ from . import __version__
 
 BLOCKSIZE = 1024 * 1024
 CTX_SETTINGS = dict(help_option_names=['-h', '--help'])
-DEV_NULL = open(os.devnull, 'w')
+DEV_NULL = io.open(os.devnull, 'w')
 
 if platform.system() == 'Windows':
     import win32api, win32con
@@ -65,7 +67,8 @@ if platform.system() == 'Windows':
 
 
 def git(*args):
-    return subprocess.check_output(['git'] + map(str, args), stderr=DEV_NULL)
+    return subprocess.check_output(
+        ['git'] + list(map(str, args)), stderr=DEV_NULL).decode()
 
 
 def human_size(num):
@@ -79,6 +82,19 @@ def human_size(num):
             return '{:3.1f}{}'.format(num, unit)
         num /= 1024.0
     return '{:3.1f}{}'.format(num, 'Y')
+
+
+@contextlib.contextmanager
+def atomic_open(dst_path, *args, **kwargs):
+    tmp_file, tmp_path = tempfile.mkstemp()
+    os.close(tmp_file)
+    try:
+        with io.open(tmp_path, *args, **kwargs) as file_:
+            yield file_
+        os.rename(tmp_path, dst_path)
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 
 class GitIndex(object):
@@ -271,7 +287,7 @@ def compute_digest(path, rel_path):
     algorithm = hashlib.sha256()
     size = os.path.getsize(path)
     with make_progress_bar(rel_path, size) as pbar:
-        with open(path, 'rb') as file_:
+        with io.open(path, 'rb') as file_:
             total_len = 0
             while True:
                 buf = file_.read(BLOCKSIZE)
@@ -341,7 +357,7 @@ class DepotIndex(object):
     def _load(self):
         self.__index = dict()
         if os.path.exists(self.path):
-            with open(self.path, 'r') as file_:
+            with io.open(self.path, 'r', encoding='utf-8') as file_:
                 for line in file_:
                     pair = line.rstrip().split(' ', 2)
                     if len(pair) == 2:
@@ -351,9 +367,10 @@ class DepotIndex(object):
         dir_path = os.path.dirname(self.path)
         if not os.path.exists(dir_path):
             os.makedirs(dir_path)
-        with io.open(self.path, 'w', newline='\n') as file_:
+        with atomic_open(
+                self.path, 'w', newline='\n', encoding='utf-8') as file_:
             for digest, size in self.__index.items():
-                file_.write(u'{} {}\n'.format(digest, size))
+                file_.write('{} {}\n'.format(digest, size))
 
 
 class Depot(object):
@@ -449,7 +466,8 @@ class App(object):
         self.user_config_path = os.path.expanduser(
             os.path.join('~', '.gitbig'))
         if os.path.exists(self.user_config_path):
-            with open(self.user_config_path, 'r') as file_:
+            with io.open(
+                    self.user_config_path, 'r', encoding='utf-8') as file_:
                 self.user_config = UserConfig(**json.load(file_))
         else:
             self.user_config = UserConfig()
@@ -457,7 +475,8 @@ class App(object):
         # Load repo configuration, creating anew if none exists
         self.repo_config_path = os.path.join(self.repo.working_dir, '.gitbig')
         if os.path.exists(self.repo_config_path):
-            with open(self.repo_config_path, 'r') as file_:
+            with io.open(
+                    self.repo_config_path, 'r', encoding='utf-8') as file_:
                 self.repo_config = self._load_config(file_)
         else:
             self.repo_config = RepoConfig()
@@ -517,8 +536,8 @@ class App(object):
             c_bit = entry.in_cache and 'C' or ' '
             d_bit = entry.in_depot and 'D' or ' '
             click.echo('[ {} {} {} ] {} {:>6} {}'.format(
-                w_bit, c_bit, d_bit, entry.digest[:8],
-                human_size(entry.size), entry.rel_path))
+                w_bit, c_bit, d_bit, entry.digest[:8], human_size(entry.size),
+                entry.rel_path))
         click.echo()
 
     def cmd_add(self, paths):
@@ -600,8 +619,8 @@ class App(object):
                     else:
                         # otherwise treat the hardlink as a path to the target
                         extra_path = extra
-                    click.echo('Linking: %s -> %s' % (entry.digest[:8],
-                                                      extra_path))
+                    click.echo(
+                        'Linking: %s -> %s' % (entry.digest[:8], extra_path))
                     extra_dir = os.path.dirname(extra_path)
                     if not os.path.exists(extra_dir):
                         os.makedirs(extra_dir)
@@ -636,12 +655,12 @@ class App(object):
                     click.echo('  Hash: %s' % digest)
 
     def cmd_custom_merge(self, ancestor_path, current_path, other_path):  # pylint: disable=W0613
-        with open(current_path, 'r') as file_:
+        with io.open(current_path, 'r', encoding='utf-8') as file_:
             current = self._load_config(file_)
-        with open(other_path, 'r') as file_:
+        with io.open(other_path, 'r', encoding='utf-8') as file_:
             other = self._load_config(file_)
         current.merge(other)
-        with open(current_path, 'w') as file_:
+        with atomic_open(current_path, 'w', encoding='utf-8') as file_:
             json.dump(dict(current), file_, indent=4)
             file_.write('\n')
 
@@ -656,7 +675,7 @@ class App(object):
         for obj in objects:
             raw_index = git('show', obj)
             index = RepoConfig(**json.loads(raw_index))
-            for digest in index.files.itervalues():
+            for digest in six.itervalues(index.files):
                 reachable.add(digest)
         return reachable
 
@@ -666,15 +685,23 @@ class App(object):
     def _save_config(self):
         self.git_config.save()
 
-        with open(self.user_config_path, 'w') as file_:
-            json.dump(dict(self.user_config), file_, indent=4)
-            file_.write('\n')
+        with atomic_open(
+                self.user_config_path, 'w', encoding='utf-8') as file_:
+            file_.write(
+                json.dumps(
+                    dict(self.user_config), indent=4, ensure_ascii=False))
+            file_.write(u'\n')
 
         if self.repo_config.files:
-            with io.open(self.repo_config_path, 'w', newline='\n') as file_:
-                jscfg = json.dumps(
-                    dict(self.repo_config), indent=4, encoding='utf-8')
-                file_.write(u'' + jscfg + '\n')
+            with atomic_open(
+                    self.repo_config_path, 'w', newline='\n',
+                    encoding='utf-8') as file_:
+                json.dump(
+                    dict(self.repo_config),
+                    file_,
+                    indent=4,
+                    ensure_ascii=False)
+                file_.write(u'\n')
             self.repo.index.add([self.repo_config_path])
         else:
             if os.path.exists(self.repo_config_path):
@@ -688,15 +715,16 @@ class App(object):
         changed = False
         lines = []
         if os.path.exists(path):
-            with open(path, 'r') as file_:
+            with io.open(path, 'r', encoding='utf-8') as file_:
                 for line in file_:
                     lines.append(line.rstrip())
         if to_add not in lines:
             lines.append(to_add)
             changed = True
-        with io.open(path, 'w', newline='\n') as file_:
+        with atomic_open(path, 'wb') as file_:
             for line in lines:
-                file_.write(u'' + line + '\n')
+                file_.write(line.encode())
+                file_.write('\n'.encode())
         return changed
 
     def _install_hooks(self):
@@ -717,13 +745,13 @@ class App(object):
         hooks_dir = os.path.join(self.repo.git_dir, 'hooks')
         hook_path = os.path.join(hooks_dir, hook)
         if os.path.exists(hook_path):
-            with open(hook_path, 'r') as file_:
+            with io.open(hook_path, 'r', encoding='utf-8') as file_:
                 existing_content = file_.read()
             if existing_content == hook_content:
                 return
             os.rename(hook_path, os.path.join(hooks_dir, '%s.git-big' % hook))
-        with open(hook_path, 'w') as file_:
-            file_.write(hook_content)
+        with atomic_open(hook_path, 'wb') as file_:
+            file_.write(hook_content.encode())
         make_executable(hook_path)
 
     def _call_hook_chain(self, hook, *args):
@@ -794,7 +822,8 @@ class App(object):
     def _copy_via_chunk(self, src, dst):
         size = os.path.getsize(src)
         rel_path = os.path.relpath(os.path.abspath(dst), self.repo.working_dir)
-        with open(src, 'rb') as src_file_, open(dst, 'wb') as dst_file_:
+        with io.open(src, 'rb') as src_file_, atomic_open(dst,
+                                                          'wb') as dst_file_:
             with make_progress_bar(rel_path, size) as pbar:
                 copied = 0
                 while True:
