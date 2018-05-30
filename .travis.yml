@@ -1,6 +1,5 @@
 language: python
 env:
-  PYTHON: python
   PIP: pip
 matrix:
   include:
@@ -12,20 +11,20 @@ matrix:
       language: generic
       python: "2.7"
       env:
-        PYTHON: python2
         PIP: pip2
+        TOXENV: py27
     - os: osx
       language: generic
       python: "3.6"
       env:
-        PYTHON: python3
         PIP: pip3
+        TOXENV: py36
 before_install: |
   if [ "$TRAVIS_OS_NAME" == "osx" ]; then
     brew update
-    if [ "$PYTHON" == "python2" ]; then
+    if [ "$TOXENV" == "py27" ]; then
       brew install python@2 || brew link --overwrite python@2
-    elif [ "$PYTHON" == "python3" ]; then
+    elif [ "$TOXENV" == "py36" ]; then
       brew upgrade python
     fi
   fi
