@@ -367,10 +367,9 @@ class DepotIndex(object):
         dir_path = os.path.dirname(self.path)
         if not os.path.exists(dir_path):
             os.makedirs(dir_path)
-        with atomic_open(
-                self.path, 'w', newline='\n', encoding='utf-8') as file_:
+        with atomic_open(self.path, 'wb') as file_:
             for digest, size in self.__index.items():
-                file_.write('{} {}\n'.format(digest, size))
+                file_.write('{} {}\n'.format(digest, size).encode())
 
 
 class Depot(object):
@@ -660,9 +659,9 @@ class App(object):
         with io.open(other_path, 'r', encoding='utf-8') as file_:
             other = self._load_config(file_)
         current.merge(other)
-        with atomic_open(current_path, 'w', encoding='utf-8') as file_:
-            json.dump(dict(current), file_, indent=4)
-            file_.write('\n')
+        with atomic_open(current_path, 'wb') as file_:
+            file_.write(json.dumps(dict(current), indent=4).encode())
+            file_.write('\n'.encode())
 
     def _find_reachable_objects(self):
         reachable = set()
@@ -685,23 +684,15 @@ class App(object):
     def _save_config(self):
         self.git_config.save()
 
-        with atomic_open(
-                self.user_config_path, 'w', encoding='utf-8') as file_:
-            file_.write(
-                json.dumps(
-                    dict(self.user_config), indent=4, ensure_ascii=False))
-            file_.write(u'\n')
+        with atomic_open(self.user_config_path, 'wb') as file_:
+            file_.write(json.dumps(dict(self.user_config), indent=4).encode())
+            file_.write('\n'.encode())
 
         if self.repo_config.files:
-            with atomic_open(
-                    self.repo_config_path, 'w', newline='\n',
-                    encoding='utf-8') as file_:
-                json.dump(
-                    dict(self.repo_config),
-                    file_,
-                    indent=4,
-                    ensure_ascii=False)
-                file_.write(u'\n')
+            with atomic_open(self.repo_config_path, 'wb') as file_:
+                file_.write(
+                    json.dumps(dict(self.repo_config), indent=4).encode())
+                file_.write('\n'.encode())
             self.repo.index.add([self.repo_config_path])
         else:
             if os.path.exists(self.repo_config_path):
