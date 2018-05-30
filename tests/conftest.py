@@ -95,7 +95,7 @@ def check_locked_file(env, file_, digest, root_dir=None):
 
 
 def check_status(expected):
-    status = check_output(['git', 'status', '-s'])
+    status = check_output(['git', 'status', '-s']).decode()
     if expected:
         assert status == '\n'.join(expected) + '\n'
     else:

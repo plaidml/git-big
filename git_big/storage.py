@@ -15,21 +15,17 @@
 from __future__ import print_function
 
 import os
-try:
-    import StringIO
-except:
-    from io import StringIO
-try:
-    import urlparse
-except:
-    from urllib.parse import urlparse
 
-import boto
+import boto3
 import libcloud
 import progressbar
-from boto.gs.resumable_upload_handler import ResumableUploadHandler
-from boto.s3.resumable_download_handler import ResumableDownloadHandler
+from boto3.s3.transfer import S3Transfer
 from libcloud.storage.types import ObjectDoesNotExistError
+from six import BytesIO
+
+from six.moves.urllib.parse import urlparse
+
+boto3.set_stream_logger('')
 
 CHUNK_SIZE = 1024 * 1024
 NUM_CB = -1
@@ -87,7 +83,7 @@ class LibcloudStorage(Storage):
         self.__bucket = None
 
     def __connect(self):
-        parts = urlparse.urlparse(self.__config.url)
+        parts = urlparse(self.__config.url)
         driver = libcloud.get_driver(libcloud.DriverType.STORAGE, parts.scheme)
         service = driver(self.__config.key, self.__config.secret)
         self.__bucket = service.get_container(parts.hostname)
@@ -118,7 +114,7 @@ class LibcloudStorage(Storage):
         with make_progress_bar(filename, obj.size) as pbar:
             stream = self.bucket.download_object_as_stream(
                 obj, chunk_size=CHUNK_SIZE)
-            with open(file_path, 'w') as file_:
+            with open(file_path, 'wb') as file_:
                 total_len = 0
                 for chunk in stream:
                     file_.write(chunk)
@@ -134,7 +130,7 @@ class LibcloudStorage(Storage):
     def get_string(self, obj_path):
         try:
             obj = self.bucket.get_object(obj_path)
-            buf = StringIO.StringIO()
+            buf = BytesIO()
             stream = obj.as_stream()
             for chunk in stream:
                 buf.write(chunk)
@@ -146,15 +142,26 @@ class LibcloudStorage(Storage):
 
     def put_string(self, obj_path, data, metadata={}):
         extra = {'meta_data': metadata}
-        stream = StringIO.StringIO(data)
+        stream = BytesIO(data.encode())
         self.bucket.upload_object_via_stream(stream, obj_path, extra=extra)
 
 
 class BotoStorage(Storage):
     def __init__(self, config):
-        self.__uri = boto.storage_uri(config.url)
-        self.__key = config.key
-        self.__secret = config.secret
+        self.__session = boto3.session.Session(
+            aws_access_key_id=config.key,
+            aws_secret_access_key=config.secret,
+        )
+        parts = urlparse(config.url)
+        if parts.scheme == 'gs':
+            self.__client = self.__session.client(
+                's3', endpoint_url='https://storage.googleapis.com')
+        else:
+            self.__client = self.__session.client('s3')
+        self.__transfer = S3Transfer(self.__client)
+        # self.__uri = boto.storage_uri(config.url)
+        # self.__key = config.key
+        # self.__secret = config.secret
         self.__bucket = None
 
     @property
@@ -236,7 +243,7 @@ DRIVERS = {
 
 
 def get_driver(config):
-    parts = urlparse.urlparse(config.url)
+    parts = urlparse(config.url)
     driver = DRIVERS.get(parts.scheme)
     if driver:
         return driver(config)
