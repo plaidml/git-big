@@ -407,16 +407,19 @@ class Depot(object):
             click.echo('Object missing from depot: %s' % entry.digest)
             return
         # Make a temp location for download until we verify it's good
-        tmp = tempfile.mkstemp(dir=self.tmp_dir)
-        pending_path = tmp[1]
-        tracker_path = os.path.join(self.tmp_dir, entry.digest + '.tracker')
-        self.__storage.get_file(entry.depot_path, pending_path, tracker_path)
-        # Finalize and rename
-        cache_dir = os.path.dirname(entry.cache_path)
-        if not os.path.exists(cache_dir):
-            os.makedirs(cache_dir)
-        os.close(tmp[0])
-        os.rename(pending_path, entry.cache_path)
+        tmp_file, tmp_path = tempfile.mkstemp(dir=self.tmp_dir)
+        os.close(tmp_file)
+        try:
+            self.__storage.get_file(entry.depot_path, tmp_path)
+            # Finalize and rename
+            cache_dir = os.path.dirname(entry.cache_path)
+            if not os.path.exists(cache_dir):
+                os.makedirs(cache_dir)
+            os.rename(tmp_path, entry.cache_path)
+        finally:
+            if os.path.exists(tmp_path):
+                print('unlinking: {}'.format(tmp_path))
+                os.unlink(tmp_path)
         # Lock and add to cache
         lock_file(entry.cache_path)
         self.index.add_digest(entry.digest, entry._depot_size)
@@ -424,10 +427,7 @@ class Depot(object):
     def put(self, entry):
         self._entry(entry)
         if not entry.in_depot:
-            tracker_path = os.path.join(self.tmp_dir,
-                                        entry.digest + '.tracker')
-            self.__storage.put_file(entry.depot_path, entry.cache_path,
-                                    tracker_path)
+            self.__storage.put_file(entry.depot_path, entry.cache_path)
             self.index.add_digest(entry.digest,
                                   os.path.getsize(entry.cache_path))
 

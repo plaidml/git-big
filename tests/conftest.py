@@ -14,12 +14,16 @@
 
 from __future__ import print_function
 
+import contextlib
 import os
-from subprocess import check_output
+import time
+from subprocess import Popen, check_output
 
+import boto3
 import pytest
 
 import git_big
+
 git_big.setup_windows()
 
 HELLO_CONTENT = 'hello'
@@ -35,14 +39,21 @@ class Context(object):
         self.repo_dir = os.path.join(self.root_dir, 'repo')
         self.depot_dir = os.path.join(self.root_dir, 'depot')
         self.bucket_dir = os.path.join(self.depot_dir, 'bucket')
+        self.depot_config = None
         if not os.path.exists(self.bucket_dir):
             os.makedirs(self.bucket_dir)
 
-    def git_big_init(self):
+    def git_big_init(self, depot_config):
         check_output(['git', 'config', 'git-big.cache-dir', self.cache_dir])
-        check_output(['git', 'config', 'git-big.depot.url', "local://bucket"])
-        check_output(['git', 'config', 'git-big.depot.key', self.depot_dir])
+        check_output(
+            ['git', 'config', 'git-big.depot.url', depot_config['url']])
+        check_output(
+            ['git', 'config', 'git-big.depot.key', depot_config['access_key']])
+        secret_key = depot_config.get('secret_key')
+        if secret_key:
+            check_output(['git', 'config', 'git-big.depot.secret', secret_key])
         check_output(['git', 'big', 'init'])
+        self.depot_config = depot_config
 
     def clone(self, repo_dir='clone', cache_dir='cache'):
         ctx = Context(self.root_dir)
@@ -50,28 +61,78 @@ class Context(object):
         ctx.cache_dir = os.path.join(self.root_dir, cache_dir)
         check_output(['git', 'clone', self.repo_dir, ctx.repo_dir])
         os.chdir(ctx.repo_dir)
-        ctx.git_big_init()
+        ctx.git_big_init(self.depot_config)
         return ctx
+
+
+@contextlib.contextmanager
+def libcloud_env(ctx):
+    depot_config = {
+        'url': 'local://bucket',
+        'access_key': ctx.depot_dir,
+    }
+    yield depot_config
+
+
+@contextlib.contextmanager
+def boto_env(ctx):
+    bucket = 'bucket'
+    minio_netloc = '127.0.0.1:9000'
+    endpoint_url = 'http://{}'.format(minio_netloc)
+    depot_config = {
+        'url': 's3+{}/{}'.format(endpoint_url, bucket),
+        'access_key': 'access_key',
+        'secret_key': 'secret_key',
+    }
+    config_dir = os.path.join(ctx.root_dir, '.minio')
+    env = dict(os.environ)
+    env.update({
+        'MINIO_ACCESS_KEY': depot_config['access_key'],
+        'MINIO_SECRET_KEY': depot_config['secret_key'],
+    })
+    proc = Popen(
+        [
+            'minio', 'server', '--config-dir', config_dir, '--address',
+            minio_netloc, ctx.depot_dir
+        ],
+        env=env)
+    try:
+        yield depot_config
+    finally:
+        proc.terminate()
 
 
 @pytest.fixture
 def env(tmpdir):
     # tmpdir is magical: https://docs.pytest.org/en/latest/tmpdir.html
     context = Context(tmpdir)
-    check_output(['git', 'init', context.repo_dir])
-    os.chdir(context.repo_dir)
-    context.git_big_init()
-    yield context
+    with libcloud_env(context) as depot_config:
+        check_output(['git', 'init', context.repo_dir])
+        os.chdir(context.repo_dir)
+        context.git_big_init(depot_config)
+        yield context
 
 
 @pytest.fixture
 def bare_env(tmpdir):
     # tmpdir is magical: https://docs.pytest.org/en/latest/tmpdir.html
     context = Context(tmpdir)
-    check_output(['git', 'init', '--bare', context.repo_dir])
-    os.chdir(context.repo_dir)
-    context.git_big_init()
-    yield context
+    with libcloud_env(context) as depot_config:
+        check_output(['git', 'init', '--bare', context.repo_dir])
+        os.chdir(context.repo_dir)
+        context.git_big_init(depot_config)
+        yield context
+
+
+@pytest.fixture(params=[libcloud_env, boto_env])
+def depot_env(tmpdir, request):
+    # tmpdir is magical: https://docs.pytest.org/en/latest/tmpdir.html
+    context = Context(tmpdir)
+    with request.param(context) as depot_config:
+        check_output(['git', 'init', context.repo_dir])
+        os.chdir(context.repo_dir)
+        context.git_big_init(depot_config)
+        yield context
 
 
 def check_locked_file(env, file_, digest, root_dir=None):

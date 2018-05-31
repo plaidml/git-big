@@ -37,10 +37,14 @@ install:
 	pip install -e .
 
 dev:
+	@echo 'You need to install minio to run tests'
+	@echo 'See: https://docs.minio.io/docs/minio-quickstart-guide'
 	pipenv install --dev
 
 test: dev
+	minio version
 	pipenv run py.test tests
 
 tox: dev
+	minio version
 	pipenv run tox

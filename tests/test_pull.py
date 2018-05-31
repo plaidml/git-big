@@ -25,13 +25,13 @@ from conftest import (HELLO_CONTENT, HELLO_DIGEST, WORLD_CONTENT, WORLD_DIGEST,
 import pytest
 
 
-def make_origin(env):
+def make_origin(depot_env):
     # add files
-    foo = join(env.repo_dir, 'foo')
+    foo = join(depot_env.repo_dir, 'foo')
     open(foo, 'w').write(HELLO_CONTENT)
     check_output(['git', 'big', 'add', foo])
 
-    bar = join(env.repo_dir, 'bar')
+    bar = join(depot_env.repo_dir, 'bar')
     open(bar, 'w').write(WORLD_CONTENT)
     check_output(['git', 'big', 'add', bar])
 
@@ -43,14 +43,14 @@ def make_origin(env):
     check_output(['git', 'commit', '-m', 'commit message'])
 
 
-def test_fresh_clone(env):
+def test_fresh_clone(depot_env):
     '''Make a fresh clone and pull'''
 
     # make the origin repo
-    make_origin(env)
+    make_origin(depot_env)
 
     # clone it
-    clone = env.clone(cache_dir='clone_cache')
+    clone = depot_env.clone(cache_dir='clone_cache')
 
     # pull big files (initially soft)
     check_call(['git', 'big', 'pull'])
@@ -68,8 +68,8 @@ def test_fresh_clone(env):
     assert isfile(join(clone.repo_dir, 'bar'))
 
 
-def check_anchors(env, expected):
-    anchors_dir = join(env.repo_dir, '.gitbig-anchors')
+def check_anchors(depot_env, expected):
+    anchors_dir = join(depot_env.repo_dir, '.gitbig-anchors')
     actual = []
     for _, _, files in os.walk(anchors_dir):
         for file_ in files:
@@ -77,10 +77,10 @@ def check_anchors(env, expected):
     assert actual == expected
 
 
-def test_checkout(env):
+def test_checkout(depot_env):
     '''Switch between branches, hooks should pull and update links'''
     # add a file
-    file_ = join(env.repo_dir, 'foo')
+    file_ = join(depot_env.repo_dir, 'foo')
     open(file_, 'w').write(HELLO_CONTENT)
     check_output(['git', 'big', 'add', file_])
 
@@ -104,25 +104,25 @@ def test_checkout(env):
 
     # switch back to 1st branch
     check_output(['git', 'checkout', 'master'])
-    check_locked_file(env, file_, HELLO_DIGEST)
-    check_anchors(env, [HELLO_DIGEST])
+    check_locked_file(depot_env, file_, HELLO_DIGEST)
+    check_anchors(depot_env, [HELLO_DIGEST])
 
     # switch back to master branch
     check_output(['git', 'checkout', 'changed'])
-    check_locked_file(env, file_, WORLD_DIGEST)
-    check_anchors(env, [WORLD_DIGEST])
+    check_locked_file(depot_env, file_, WORLD_DIGEST)
+    check_anchors(depot_env, [WORLD_DIGEST])
 
     # switch back to 1st branch
     check_output(['git', 'checkout', 'master'])
-    check_locked_file(env, file_, HELLO_DIGEST)
-    check_anchors(env, [HELLO_DIGEST])
+    check_locked_file(depot_env, file_, HELLO_DIGEST)
+    check_anchors(depot_env, [HELLO_DIGEST])
 
 
-def test_checkout_diff_types(env):
+def test_checkout_diff_types(depot_env):
     '''Switch between branches, hooks should pull and update links.
     1st commit is a big file, 2nd commit is a normal file.'''
     # add a file
-    file_ = join(env.repo_dir, 'foo')
+    file_ = join(depot_env.repo_dir, 'foo')
     open(file_, 'w').write(HELLO_CONTENT)
     check_output(['git', 'big', 'add', file_])
 
@@ -146,7 +146,7 @@ def test_checkout_diff_types(env):
 
     # switch back to 1st branch
     check_output(['git', 'checkout', 'master'])
-    check_locked_file(env, file_, HELLO_DIGEST)
+    check_locked_file(depot_env, file_, HELLO_DIGEST)
 
     # switch back to master branch
     check_output(['git', 'checkout', 'changed'])
@@ -154,17 +154,17 @@ def test_checkout_diff_types(env):
 
     # switch back to 1st branch
     check_output(['git', 'checkout', 'master'])
-    check_locked_file(env, file_, HELLO_DIGEST)
+    check_locked_file(depot_env, file_, HELLO_DIGEST)
 
 
-def test_pull_file(env):
+def test_pull_file(depot_env):
     '''test the ability to pull individual big files'''
 
     # make the origin repo
-    make_origin(env)
+    make_origin(depot_env)
 
     # clone it
-    clone = env.clone(cache_dir='clone_cache')
+    clone = depot_env.clone(cache_dir='clone_cache')
 
     # now pull a single file
     check_output(['git', 'big', 'pull', 'foo'])
@@ -189,9 +189,9 @@ def test_pull_file(env):
     assert ret != 0
 
 
-def check_alt_hardlink(env, file_path, digest):
-    root_dir = env.repo_dir
-    cache_path = os.path.join(env.cache_dir, 'objects', digest[:2],
+def check_alt_hardlink(depot_env, file_path, digest):
+    root_dir = depot_env.repo_dir
+    cache_path = os.path.join(depot_env.cache_dir, 'objects', digest[:2],
                               digest[2:4], digest)
 
     assert os.path.isfile(file_path)
@@ -203,34 +203,34 @@ def check_alt_hardlink(env, file_path, digest):
             file_.write('fail')
 
 
-def test_pull_extra(env):
+def test_pull_extra(depot_env):
     '''test the --extra option'''
 
     # make the origin repo
-    make_origin(env)
+    make_origin(depot_env)
 
     # clone it
-    clone = env.clone(cache_dir='clone_cache')
+    clone = depot_env.clone(cache_dir='clone_cache')
 
     # now pull a single file and also specify an extra path
-    alt_foo = join(env.root_dir, 'alt', 'foo')
+    alt_foo = join(depot_env.root_dir, 'alt', 'foo')
     check_output(['git', 'big', 'pull', 'foo', '--extra', alt_foo])
 
     # ensure that the alt file appears and that its read-only
     check_alt_hardlink(clone, alt_foo, HELLO_DIGEST)
 
 
-def test_pull_extra_dir(env):
+def test_pull_extra_dir(depot_env):
     '''test the --extra option with multiple pulls'''
 
     # make the origin repo
-    make_origin(env)
+    make_origin(depot_env)
 
     # clone it
-    clone = env.clone(cache_dir='clone_cache')
+    clone = depot_env.clone(cache_dir='clone_cache')
 
     # now pull a single file and also specify an extra directory
-    alt_dir = join(env.root_dir, 'alt')
+    alt_dir = join(depot_env.root_dir, 'alt')
     check_output(['git', 'big', 'pull', '--hard', '--extra', alt_dir])
 
     # ensure that the alt files appear and that they're read-only

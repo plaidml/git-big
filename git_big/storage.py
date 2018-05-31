@@ -17,18 +17,15 @@ from __future__ import print_function
 import os
 
 import boto3
+import botocore
 import libcloud
 import progressbar
-from boto3.s3.transfer import S3Transfer
 from libcloud.storage.types import ObjectDoesNotExistError
 from six import BytesIO
 
 from six.moves.urllib.parse import urlparse
 
-boto3.set_stream_logger('')
-
 CHUNK_SIZE = 1024 * 1024
-NUM_CB = -1
 
 
 def make_progress_bar(name, size):
@@ -57,10 +54,10 @@ class Storage(object):
     def delete_object(self, obj_path):
         raise NotImplementedError()
 
-    def get_file(self, obj_path, file_path, tracker_path):
+    def get_file(self, obj_path, file_path):
         raise NotImplementedError()
 
-    def put_file(self, obj_path, file_path, tracker_path):
+    def put_file(self, obj_path, file_path):
         raise NotImplementedError()
 
     def get_string(self, obj_path):
@@ -108,7 +105,7 @@ class LibcloudStorage(Storage):
             return
         self.bucket.delete_object(obj)
 
-    def get_file(self, obj_path, file_path, tracker_path):
+    def get_file(self, obj_path, file_path):
         obj = self.bucket.get_object(obj_path)
         filename = os.path.basename(obj_path)
         with make_progress_bar(filename, obj.size) as pbar:
@@ -121,7 +118,7 @@ class LibcloudStorage(Storage):
                     total_len += len(chunk)
                     pbar.update(total_len)
 
-    def put_file(self, obj_path, file_path, tracker_path):
+    def put_file(self, obj_path, file_path):
         filename = os.path.basename(file_path)
         file_size = os.path.getsize(file_path)
         with make_progress_bar(filename, file_size) as pbar:
@@ -146,99 +143,87 @@ class LibcloudStorage(Storage):
         self.bucket.upload_object_via_stream(stream, obj_path, extra=extra)
 
 
+class BotoProgress(object):
+    def __init__(self, pbar):
+        self.pbar = pbar
+        self.total = 0
+
+    def __call__(self, bytes_amount):
+        self.total += bytes_amount
+        self.pbar.update(self.total)
+
+
 class BotoStorage(Storage):
     def __init__(self, config):
-        self.__session = boto3.session.Session(
+        session = boto3.session.Session(
             aws_access_key_id=config.key,
             aws_secret_access_key=config.secret,
         )
         parts = urlparse(config.url)
+        bucket_name = parts.hostname
         if parts.scheme == 'gs':
-            self.__client = self.__session.client(
-                's3', endpoint_url='https://storage.googleapis.com')
+            s3 = session.resource(
+                's3',
+                endpoint_url='https://storage.googleapis.com',
+                config=botocore.client.Config(signature_version='s3v4'))
+        elif parts.scheme == 's3+http':
+            s3 = session.resource(
+                's3', endpoint_url='http://{}'.format(parts.netloc))
+            bucket_name = parts.path[1:]  # skip leading '/'
         else:
-            self.__client = self.__session.client('s3')
-        self.__transfer = S3Transfer(self.__client)
-        # self.__uri = boto.storage_uri(config.url)
-        # self.__key = config.key
-        # self.__secret = config.secret
-        self.__bucket = None
+            s3 = session.resource('s3')
+        self.__bucket = s3.Bucket(bucket_name)
 
     @property
     def bucket(self):
-        if not self.__bucket:
-            self.__connect()
         return self.__bucket
 
-    def __connect(self):
-        self.__uri.connect(self.__key, self.__secret)
-        self.__bucket = self.__uri.get_bucket()
-
     def has_object(self, obj_path):
-        key = self.bucket.get_key(obj_path)
-        if key:
-            return key.size
-        return None
+        try:
+            obj = self.bucket.Object(obj_path)
+            return obj.content_length
+        except botocore.exceptions.ClientError as ex:
+            if ex.response['Error']['Code'] == '404':
+                return None
+            raise
 
     def delete_object(self, obj_path):
-        self.bucket.delete_key(obj_path)
+        self.bucket.delete_objects(Delete={'Objects': [{'Key': obj_path}]})
 
-    def get_file(self, obj_path, file_path, tracker_path):
-        key = self.bucket.get_key(obj_path)
-        if key is None:
-            return None
-
-        handler = ResumableDownloadHandler(tracker_path)
+    def get_file(self, obj_path, file_path):
         filename = os.path.basename(obj_path)
+        obj = self.bucket.Object(obj_path)
+        with make_progress_bar(filename, obj.content_length) as pbar:
+            obj.download_file(file_path, Callback=BotoProgress(pbar))
 
-        with make_progress_bar(filename, key.size) as pbar:
-
-            def callback(total_xfer, total_size):
-                pbar.update(total_xfer)
-
-            with open(file_path, 'ab') as file_:
-                key.get_contents_to_file(
-                    file_,
-                    cb=callback,
-                    num_cb=NUM_CB,
-                    res_download_handler=handler)
-
-    def put_file(self, obj_path, file_path, tracker_path):
+    def put_file(self, obj_path, file_path):
         filename = os.path.basename(file_path)
         file_size = os.path.getsize(file_path)
         with make_progress_bar(filename, file_size) as pbar:
-
-            def callback(total_xfer, total_size):
-                pbar.update(total_xfer)
-
-            key = self.bucket.new_key(obj_path)
-            if self.__uri.scheme == 'gs':
-                handler = ResumableUploadHandler(tracker_path)
-                key.set_contents_from_filename(
-                    file_path,
-                    cb=callback,
-                    num_cb=NUM_CB,
-                    res_upload_handler=handler)
-            else:
-                key.set_contents_from_filename(
-                    file_path, cb=callback, num_cb=NUM_CB)
+            self.bucket.upload_file(
+                file_path, obj_path, Callback=BotoProgress(pbar))
 
     def get_string(self, obj_path):
-        key = self.bucket.get_key(obj_path)
-        if key is None:
-            return None
-        data = key.get_contents_as_string()
-        return StorageObject(data, key.metadata, key.last_modified)
+        obj = self.bucket.Object(obj_path)
+        try:
+            body = obj.get()['Body']
+            data = body.read().decode('utf-8')
+            return StorageObject(data, obj.metadata, obj.last_modified)
+        except botocore.exceptions.ClientError as ex:
+            if ex.response['Error']['Code'] == 'NoSuchKey':
+                return None
+            raise
 
     def put_string(self, obj_path, data, metadata={}):
-        key = self.bucket.new_key(obj_path)
-        key.metadata = metadata
-        key.set_contents_from_string(data)
+        stream = BytesIO(data.encode())
+        self.bucket.upload_fileobj(
+            stream, obj_path, ExtraArgs={'Metadata': metadata})
 
 
 DRIVERS = {
-    's3': BotoStorage,
     'gs': BotoStorage,
+    's3': BotoStorage,
+    's3+http': BotoStorage,
 }
 
 
