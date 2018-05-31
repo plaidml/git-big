@@ -418,7 +418,6 @@ class Depot(object):
             os.rename(tmp_path, entry.cache_path)
         finally:
             if os.path.exists(tmp_path):
-                print('unlinking: {}'.format(tmp_path))
                 os.unlink(tmp_path)
         # Lock and add to cache
         lock_file(entry.cache_path)

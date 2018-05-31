@@ -16,14 +16,11 @@
 
 VERSION=$(shell python -c 'import git_big; print(git_big.__version__)')
 
-WHEEL=dist/git_big-${VERSION}-py2-none-any.whl
+WHEEL=dist/git_big-${VERSION}-py2.py3-none-any.whl
 
 all: ${WHEEL}
 clean:
-	rm -rf build
-	rm -rf dist
-	rm -rf git_big.egg-info
-	find . -name *.pyc -delete
+	git clean -fxd
 
 ${WHEEL}: setup.py git_big/*.py
 	python $< bdist_wheel
