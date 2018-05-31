@@ -1,18 +1,18 @@
 environment:
   matrix:
-    - PYTHON: "C:\\Python27-x64"
+    - PYTHON: C:\Python27-x64
       TOXENV: py27
-    - PYTHON: "C:\\Python36-x64"
+    - PYTHON: C:\Python36-x64
       TOXENV: py36
 
 install:
-  - "SET PATH=%PYTHON%;%PYTHON%\\Scripts;%PATH%"
-  - "python -m pip install tox"
+  - SET PATH=%PYTHON%;%PYTHON%\Scripts;%PATH%
+  - python -m pip install tox
 
 build: off
 
 cache:
-  - "%LOCALAPPDATA%\pip\Cache"
+  - %LOCALAPPDATA%\pip\Cache
 
 test_script:
-  - "tox"
+  - tox
