@@ -16,10 +16,8 @@ from __future__ import print_function
 
 import contextlib
 import os
-import time
 from subprocess import Popen, check_output
 
-import boto3
 import pytest
 
 import git_big
@@ -45,13 +43,17 @@ class Context(object):
 
     def git_big_init(self, depot_config):
         check_output(['git', 'config', 'git-big.cache-dir', self.cache_dir])
-        check_output(
-            ['git', 'config', 'git-big.depot.url', depot_config['url']])
-        check_output(
-            ['git', 'config', 'git-big.depot.key', depot_config['access_key']])
-        secret_key = depot_config.get('secret_key')
-        if secret_key:
-            check_output(['git', 'config', 'git-big.depot.secret', secret_key])
+        check_output([
+            'git',
+            'big',
+            'set-depot',
+            '--url',
+            depot_config['url'],
+            '--key',
+            depot_config['access_key'],
+            '--secret',
+            depot_config.get('secret_key', ''),
+        ])
         check_output(['git', 'big', 'init'])
         self.depot_config = depot_config
 
