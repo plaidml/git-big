@@ -1,15 +1,17 @@
 import os
+import stat
 import subprocess
 import sys
 
-from win32com.shell import shell, shellcon
+import click
+
+import jaraco.windows.filesystem as fs
 import win32api
 import win32con
 import win32console
 import win32event
 import win32process
-
-import click
+from win32com.shell import shell, shellcon
 
 
 def _respawn_as_administrator():
@@ -33,10 +35,10 @@ def _respawn_as_administrator():
     except:
         raise click.ClickException(
             'Could not elevate to administrator privileges')
-    hProcess = process['hProcess']
-    win32event.WaitForSingleObject(hProcess, win32event.INFINITE)
-    exitcode = win32process.GetExitCodeProcess(hProcess)
-    win32api.CloseHandle(hProcess)
+    handle = process['hProcess']
+    win32event.WaitForSingleObject(handle, win32event.INFINITE)
+    exitcode = win32process.GetExitCodeProcess(handle)
+    win32api.CloseHandle(handle)
     return exitcode
 
 
@@ -74,7 +76,7 @@ def cli(allocate_console):
         ]
         for cmd in cmds:
             click.echo('  ' + ' '.join(cmd))
-            subprocess.check_call(cmd, shell=True)
+            subprocess.check_call(cmd)
         click.echo('Successfully configured system for use with git-big.')
         click.echo(
             'N.B. You may need to run "git config core.symlinks true" in your local repositories'
@@ -83,3 +85,46 @@ def cli(allocate_console):
     finally:
         if allocate_console:
             click.pause()
+
+
+def check_symlinks():
+    key = win32api.RegOpenKey(
+        win32con.HKEY_LOCAL_MACHINE,
+        'SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock', 0,
+        win32con.KEY_READ)
+    (val, _) = win32api.RegQueryValueEx(key,
+                                        'AllowDevelopmentWithoutDevLicense')
+    symlinks = subprocess.check_output(['git', 'config', 'core.symlinks'])
+    if val != 1 or not 'true' in symlinks:
+        print(
+            'git-big requires symlinks to be enabled; run `git big windows-setup`'
+        )
+        raise SystemExit(1)
+    # orig_relpath = os.path.relpath
+    # orig_join = os.path.join
+    # os.path.join = lambda start, *rest: orig_join(start, *rest).replace(os.path.sep,'/')
+    # os.path.relpath = lambda to, rel: orig_relpath(
+    #     to, rel).replace(os.path.sep, '/')
+
+
+def monkey_patch():
+    orig_isfile = os.path.isfile
+
+    def link(src, dest):
+        fs.link(src, dest)
+        os.chmod(dest, stat.S_IWRITE | stat.S_IREAD)
+
+    def isfile(src):
+        if os.path.islink(src):
+            src = os.path.abspath(
+                os.path.join(
+                    os.path.dirname(os.path.abspath(src)), fs.readlink(src)))
+        return orig_isfile(src)
+
+    if not hasattr(os, 'symlink'):
+        os.link = link
+        os.symlink = lambda src, dest: fs.symlink(src, dest, 0x2)
+        os.path.islink = fs.islink
+        os.path.isfile = isfile
+    if not hasattr(os, 'readlink'):
+        os.readlink = fs.readlink

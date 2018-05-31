@@ -19,7 +19,6 @@ import contextlib
 import errno
 import getpass
 import hashlib
-import importlib
 import io
 import json
 import os
@@ -43,27 +42,6 @@ from . import __version__
 BLOCKSIZE = 1024 * 1024
 CTX_SETTINGS = dict(help_option_names=['-h', '--help'])
 DEV_NULL = io.open(os.devnull, 'w')
-
-if platform.system() == 'Windows':
-    import win32api, win32con
-    rkey = win32api.RegOpenKey(
-        win32con.HKEY_LOCAL_MACHINE,
-        'SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock', 0,
-        win32con.KEY_READ)
-    (val, typ) = win32api.RegQueryValueEx(rkey,
-                                          'AllowDevelopmentWithoutDevLicense')
-    symlinks = subprocess.check_output(
-        ['git', 'config', 'core.symlinks'], shell=True)
-    if val != 1 or not 'true' in symlinks:
-        print(
-            'git-big requires symlinks to be enabled; run `git-big windows-setup`'
-        )
-        exit(1)
-    orig_relpath = os.path.relpath
-    orig_join = os.path.join
-    os.path.join = lambda start, *rest: orig_join(start, *rest).replace(os.path.sep,'/')
-    os.path.relpath = lambda to, rel: orig_relpath(
-        to, rel).replace(os.path.sep, '/')
 
 
 def git(*args):
@@ -1111,5 +1089,7 @@ def cmd_custom_merge(ancestor, current, other):
 
 
 if platform.system() == 'Windows':
-    win = importlib.import_module('..windows_setup', 'git_big.main')
-    cli.add_command(win.cli, name='windows-setup')
+    import git_big.windows
+    git_big.windows.check_symlinks()
+    cli.add_command(git_big.windows.cli, name='windows-setup')
+    git_big.windows.monkey_patch()
