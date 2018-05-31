@@ -926,7 +926,7 @@ def cmd_init():
 @click.option('--secret', prompt=True, help='The git-big depot secret')
 @click.option('--key', prompt=True, help='The git-big depot key')
 def cmd_set_depot(url, secret, key):
-    """Sets the git-big depot in the local git configuration"""
+    """Sets depot configuration."""
     git('config', 'git-big.depot.url', url)
     git('config', 'git-big.depot.key', key)
     git('config', 'git-big.depot.secret', secret)
