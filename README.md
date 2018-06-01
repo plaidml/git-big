@@ -6,8 +6,8 @@ Git Big is a command line extension to Git for managing
 
 ## Requirements
 
-* A filesystem that supports symbolic & hard linking (Linux & MacOS, Windows is untested)
-* Python 2.7
+* A filesystem that supports symbolic & hard linking (Linux, MacOS, Windows/NTFS)
+* Python 2.7 or Python 3.6
 * (optional) An account with one of the 
   [storage providers](https://libcloud.readthedocs.io/en/latest/storage/supported_providers.html)
   supported by [Apache Libcloud](https://libcloud.apache.org/):

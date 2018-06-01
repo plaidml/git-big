@@ -15,14 +15,15 @@
 from __future__ import print_function
 
 import os
-from os.path import isfile, islink, join
+from os.path import join
 from subprocess import call, check_call, check_output
+
+import pytest
 
 # pylint: disable=unused-argument,W0621
 from conftest import (HELLO_CONTENT, HELLO_DIGEST, WORLD_CONTENT, WORLD_DIGEST,
                       check_locked_file, check_status)
-
-import pytest
+from git_big.main import fs
 
 
 def make_origin(depot_env):
@@ -55,17 +56,17 @@ def test_fresh_clone(depot_env):
     # pull big files (initially soft)
     check_call(['git', 'big', 'pull'])
 
-    assert islink(join(clone.repo_dir, 'foo'))
-    assert islink(join(clone.repo_dir, 'bar'))
+    assert fs.islink(join(clone.repo_dir, 'foo'))
+    assert fs.islink(join(clone.repo_dir, 'bar'))
 
-    assert not isfile(join(clone.repo_dir, 'foo'))
-    assert not isfile(join(clone.repo_dir, 'bar'))
+    assert not fs.isfile(join(clone.repo_dir, 'foo'))
+    assert not fs.isfile(join(clone.repo_dir, 'bar'))
 
     # pull big files (now hard)
     check_output(['git', 'big', 'pull', '--hard'])
 
-    assert isfile(join(clone.repo_dir, 'foo'))
-    assert isfile(join(clone.repo_dir, 'bar'))
+    assert fs.isfile(join(clone.repo_dir, 'foo'))
+    assert fs.isfile(join(clone.repo_dir, 'bar'))
 
 
 def check_anchors(depot_env, expected):
@@ -103,7 +104,7 @@ def test_checkout(depot_env):
     check_status([])
 
     # switch back to 1st branch
-    check_output(['git', 'checkout', 'master'])
+    check_call(['git', 'checkout', 'master'])
     check_locked_file(depot_env, file_, HELLO_DIGEST)
     check_anchors(depot_env, [HELLO_DIGEST])
 
@@ -150,7 +151,7 @@ def test_checkout_diff_types(depot_env):
 
     # switch back to master branch
     check_output(['git', 'checkout', 'changed'])
-    assert not islink(file_)
+    assert not fs.islink(file_)
 
     # switch back to 1st branch
     check_output(['git', 'checkout', 'master'])
@@ -169,20 +170,20 @@ def test_pull_file(depot_env):
     # now pull a single file
     check_output(['git', 'big', 'pull', 'foo'])
 
-    assert isfile(join(clone.repo_dir, 'foo'))
-    assert not isfile(join(clone.repo_dir, 'bar'))
+    assert fs.isfile(join(clone.repo_dir, 'foo'))
+    assert not fs.isfile(join(clone.repo_dir, 'bar'))
 
     # pulling a file again is ok
     check_output(['git', 'big', 'pull', 'foo'])
 
-    assert isfile(join(clone.repo_dir, 'foo'))
-    assert not isfile(join(clone.repo_dir, 'bar'))
+    assert fs.isfile(join(clone.repo_dir, 'foo'))
+    assert not fs.isfile(join(clone.repo_dir, 'bar'))
 
     # pull another big file
     check_output(['git', 'big', 'pull', 'bar'])
 
-    assert isfile(join(clone.repo_dir, 'foo'))
-    assert isfile(join(clone.repo_dir, 'bar'))
+    assert fs.isfile(join(clone.repo_dir, 'foo'))
+    assert fs.isfile(join(clone.repo_dir, 'bar'))
 
     # pull an invalid file
     ret = call(['git', 'big', 'pull', 'does_not_exist'])
@@ -194,8 +195,8 @@ def check_alt_hardlink(depot_env, file_path, digest):
     cache_path = os.path.join(depot_env.cache_dir, 'objects', digest[:2],
                               digest[2:4], digest)
 
-    assert os.path.isfile(file_path)
-    assert os.path.isfile(cache_path)
+    assert fs.isfile(file_path)
+    assert fs.isfile(cache_path)
     assert os.stat(file_path).st_ino == os.stat(cache_path).st_ino
 
     with pytest.raises(Exception):

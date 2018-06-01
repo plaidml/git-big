@@ -62,6 +62,30 @@ def human_size(num):
     return '{:3.1f}{}'.format(num, 'Y')
 
 
+class PosixFileSystem(object):
+    def islink(self, path):
+        return os.path.islink(path)
+
+    def isfile(self, path):
+        return os.path.isfile(path)
+
+    def readlink(self, path):
+        return os.readlink(path)
+
+    def link(self, src, dst):
+        return os.link(src, dst)
+
+    def symlink(self, src, dst):
+        return os.symlink(src, dst)
+
+
+if platform.system() == 'Windows':
+    from git_big.windows import WindowsFileSystem
+    fs = WindowsFileSystem()
+else:
+    fs = PosixFileSystem()
+
+
 @contextlib.contextmanager
 def atomic_open(dst_path, *args, **kwargs):
     tmp_file, tmp_path = tempfile.mkstemp()
@@ -69,6 +93,8 @@ def atomic_open(dst_path, *args, **kwargs):
     try:
         with io.open(tmp_path, *args, **kwargs) as file_:
             yield file_
+        if platform.system() == 'Windows' and os.path.exists(dst_path):
+            os.unlink(dst_path)
         os.rename(tmp_path, dst_path)
     finally:
         if os.path.exists(tmp_path):
@@ -96,7 +122,8 @@ class GitRepository(object):
                 self.git_dir = git('rev-parse', '--git-common-dir').rstrip()
         except subprocess.CalledProcessError:
             raise click.ClickException('git or git repository not found')
-        self.working_dir = git('rev-parse', '--show-toplevel').rstrip()
+        self.working_dir = os.path.normpath(
+            git('rev-parse', '--show-toplevel').rstrip())
         self.index = GitIndex()
         self.is_bare = git('rev-parse',
                            '--is-bare-repository').rstrip() == 'true'
@@ -221,7 +248,7 @@ class Entry(object):
 
     @property
     def is_link(self):
-        return os.path.islink(self.working_path)
+        return fs.islink(self.working_path)
 
     @property
     def in_working(self):
@@ -230,7 +257,7 @@ class Entry(object):
     @property
     def is_linked(self):
         return self.in_anchors and self.is_link and \
-            os.readlink(self.working_path) == self.symlink_path
+            fs.readlink(self.working_path) == self.symlink_path
 
     @property
     def in_depot(self):
@@ -308,11 +335,9 @@ def make_executable(path):
 
 def rmtree_err_handler(function, path, excinfo):
     excvalue = excinfo[1]
-    if function in (os.rmdir, os.remove) and excvalue.errno == errno.EACCES:
+    if function == os.unlink and excvalue.errno == errno.EACCES:
         os.chmod(path, stat.S_IWUSR)
         function(path)
-    else:
-        raise
 
 
 class DepotIndex(object):
@@ -418,13 +443,9 @@ class Depot(object):
         return (obj, refs)
 
     def save_refs(self, refs):
-        if platform.system() != 'Windows':
-            user = getpass.getuser()
-        else:
-            user = os.path.split(os.path.expanduser('~'))[-1]
         metadata = {
             'host': socket.gethostname(),
-            'user': user,
+            'user': getpass.getuser(),
             'path': self.repo.git_dir,
         }
         buf = '\n'.join(refs)
@@ -436,6 +457,14 @@ class Depot(object):
 
 class App(object):
     def __init__(self):
+        if platform.system() == 'Windows':
+            import git_big.windows
+            if not git_big.windows.check():
+                click.echo(
+                    'git-big requires symlinks to be enabled; run `git big windows-setup`'
+                )
+                raise SystemExit(1)
+
         self.repo = GitRepository()
 
         # Load user configuration, creating anew if none exists
@@ -572,7 +601,7 @@ class App(object):
                     anchor_dir = os.path.dirname(entry.anchor_path)
                     if not os.path.exists(anchor_dir):
                         os.makedirs(anchor_dir)
-                    os.link(entry.cache_path, entry.anchor_path)
+                    fs.link(entry.cache_path, entry.anchor_path)
                 # add a symlink from the working path to the anchor
                 if not entry.in_working:
                     click.echo('Linking: %s -> %s' % (entry.digest[:8],
@@ -580,7 +609,7 @@ class App(object):
                     entry_dir = os.path.dirname(entry.working_path)
                     if not os.path.exists(entry_dir):
                         os.makedirs(entry_dir)
-                    os.symlink(entry.symlink_path, entry.working_path)
+                    fs.symlink(entry.symlink_path, entry.working_path)
                 elif not entry.is_link:
                     click.echo('Pull aborted, dirty file detected: "%s"' %
                                entry.rel_path)
@@ -600,7 +629,7 @@ class App(object):
                     extra_dir = os.path.dirname(extra_path)
                     if not os.path.exists(extra_dir):
                         os.makedirs(extra_dir)
-                    os.link(entry.cache_path, extra_path)
+                    fs.link(entry.cache_path, extra_path)
             else:
                 click.echo(
                     'File "{}" not available locally; use `git big pull --hard` to download it'.
@@ -746,7 +775,7 @@ class App(object):
                 yield path
 
     def _add_file(self, path):
-        if os.path.islink(path):
+        if fs.islink(path):
             return
 
         rel_path = os.path.relpath(
@@ -767,9 +796,9 @@ class App(object):
             anchor_dir = os.path.dirname(entry.anchor_path)
             if not os.path.exists(anchor_dir):
                 os.makedirs(anchor_dir)
-            os.link(entry.cache_path, entry.anchor_path)
+            fs.link(entry.cache_path, entry.anchor_path)
 
-        os.symlink(entry.symlink_path, entry.working_path)
+        fs.symlink(entry.symlink_path, entry.working_path)
         self.repo.index.add([entry.working_path])
 
         self.repo_config.files[rel_path] = digest
@@ -803,7 +832,7 @@ class App(object):
                     pbar.update(copied)
 
     def _unlock_file(self, path):
-        if not os.path.islink(path):
+        if not fs.islink(path):
             return
         rel_path = os.path.relpath(
             os.path.abspath(path), self.repo.working_dir)
@@ -844,7 +873,7 @@ class App(object):
             click.echo('Source not in index: %s' % src)
 
         entry = Entry(self.config, rel_tgt, digest)
-        os.symlink(entry.symlink_path, entry.working_path)
+        fs.symlink(entry.symlink_path, entry.working_path)
         self.repo.index.add([entry.working_path])
         self.repo_config.files[rel_tgt] = digest
 
@@ -862,7 +891,7 @@ class App(object):
 
         src_entry = Entry(self.config, rel_src, digest)
         tgt_entry = Entry(self.config, rel_tgt, digest)
-        os.symlink(tgt_entry.symlink_path, tgt_entry.working_path)
+        fs.symlink(tgt_entry.symlink_path, tgt_entry.working_path)
         os.unlink(src_entry.working_path)
         self.repo.index.add([tgt_entry.working_path])
         self.repo.index.remove([src_entry.working_path])
@@ -1090,6 +1119,4 @@ def cmd_custom_merge(ancestor, current, other):
 
 if platform.system() == 'Windows':
     import git_big.windows
-    git_big.windows.check_symlinks()
     cli.add_command(git_big.windows.cli, name='windows-setup')
-    git_big.windows.monkey_patch()

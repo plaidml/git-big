@@ -15,4 +15,5 @@ cache:
   - '%LOCALAPPDATA%\pip\Cache'
 
 test_script:
+  - python git_big\windows.py
   - tox

@@ -14,11 +14,12 @@
 
 from __future__ import print_function
 
-from os.path import isfile, islink, join
+from os.path import join
 from subprocess import check_call, check_output
 
 from conftest import (HELLO_CONTENT, HELLO_DIGEST, check_locked_file,
                       check_status)
+from git_big.main import fs
 
 
 def test_unlock(env):
@@ -43,8 +44,8 @@ def test_unlock(env):
     check_status(['A  .gitattributes', '?? foo'])
 
     # we should have a normal file
-    assert not islink(file_)
-    assert isfile(file_)
+    assert not fs.islink(file_)
+    assert fs.isfile(file_)
 
     # unlocked files should be writable
     open(file_, 'w').write('ok')
@@ -75,9 +76,9 @@ def test_unlock_one_of_two(env):
     check_status(['A  .gitattributes', 'A  .gitbig', 'A  bar', '?? foo'])
 
     # we should have a normal file and a linked file
-    assert not islink(file1)
-    assert isfile(file1)
-    assert islink(file2)
+    assert not fs.islink(file1)
+    assert fs.isfile(file1)
+    assert fs.islink(file2)
 
     # unlocked files should be writable
     open(file1, 'w').write('ok')
@@ -111,9 +112,9 @@ def test_unlock_after_commit(env):
     check_status(['M  .gitbig', 'D  foo', '?? foo'])
 
     # we should have a normal file and a linked file
-    assert not islink(file1)
-    assert isfile(file1)
-    assert islink(file2)
+    assert not fs.islink(file1)
+    assert fs.isfile(file1)
+    assert fs.islink(file2)
 
     # unlocked files should be writable
     open(file1, 'w').write('ok')

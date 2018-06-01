@@ -14,11 +14,12 @@
 
 from __future__ import print_function
 
-from os.path import isfile, join
+from os.path import join
 from subprocess import check_call
 
 # pylint: disable=unused-argument,W0621
 from conftest import HELLO_CONTENT, HELLO_DIGEST
+from git_big.main import fs
 
 
 def test_push(depot_env):
@@ -32,7 +33,7 @@ def test_push(depot_env):
     # push up to the depot
     check_call(['git', 'big', 'push'])
 
-    assert isfile(join(depot_env.bucket_dir, 'objects', HELLO_DIGEST))
+    assert fs.isfile(join(depot_env.bucket_dir, 'objects', HELLO_DIGEST))
 
     # 2nd push should be a nop
     check_call(['git', 'big', 'push'])

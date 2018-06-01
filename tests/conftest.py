@@ -21,11 +21,11 @@ from subprocess import Popen, check_output
 
 import pytest
 
-import git_big
+from git_big.main import fs
 
 if platform.system() == 'Windows':
     import git_big.windows
-    git_big.windows.monkey_patch()
+    git_big.windows.check()
 
 HELLO_CONTENT = 'hello'
 HELLO_DIGEST = '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824'
@@ -149,10 +149,10 @@ def check_locked_file(env, file_, digest, root_dir=None):
     cache_path = os.path.join(env.cache_dir, 'objects', digest[:2],
                               digest[2:4], digest)
 
-    assert os.path.isfile(anchors_path)
-    assert os.path.isfile(cache_path)
-    assert os.path.islink(file_)
-    assert os.readlink(file_) == symlink_path
+    assert fs.isfile(anchors_path)
+    assert fs.isfile(cache_path)
+    assert fs.islink(file_)
+    assert fs.readlink(file_) == symlink_path
     assert os.stat(anchors_path).st_ino == os.stat(cache_path).st_ino
 
     # once the file is added, it should be read-only
