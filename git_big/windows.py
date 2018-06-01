@@ -45,6 +45,8 @@ class DevMode(object):
     NAME = 'AllowDevelopmentWithoutDevLicense'
 
     def check(self):
+        if os.getenv('APPVEYOR'):
+            return True
         key = win32api.RegOpenKey(DevMode.HIVE, DevMode.KEY, 0,
                                   win32con.KEY_READ)
         value, _ = win32api.RegQueryValueEx(key, DevMode.NAME)

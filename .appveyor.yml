@@ -1,4 +1,5 @@
 environment:
+  APPVEYOR: yes
   matrix:
     - PYTHON: C:\Python27-x64
       TOXENV: py27
@@ -7,7 +8,7 @@ environment:
 
 install:
   - SET PATH=%PYTHON%;%PYTHON%\Scripts;%PATH%
-  - python -m pip install jaraco.windows pywin32 tox
+  - python -m pip install tox
 
 build: off
 
@@ -15,5 +16,6 @@ cache:
   - '%LOCALAPPDATA%\pip\Cache'
 
 test_script:
-  - python git_big\windows.py
+  - git config --system core.symlinks true
+  - git config --global core.symlinks true
   - tox
