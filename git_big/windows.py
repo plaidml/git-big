@@ -28,7 +28,7 @@ def _respawn_as_administrator():
         process = shell.ShellExecuteEx(
             lpVerb='runas',
             lpFile=sys.argv[0],
-            lpParameters=' '.join(['--allocate-console'] + sys.argv[1:]),
+            lpParameters=' '.join(sys.argv[1:]),
             fMask=shellcon.SEE_MASK_NOCLOSEPROCESS)
     except:
         sys.exit('Could not elevate to administrator privileges')
@@ -87,18 +87,10 @@ def check():
 
 def setup(click, allocate_console):
     if not shell.IsUserAnAdmin():
-        enable_git_symlinks()
         return _respawn_as_administrator()
-    try:
-        if allocate_console:
-            win32console.FreeConsole()
-            win32console.AllocConsole()
-        enable_dev_mode()
-        enable_git_symlinks()
-        print('Successfully configured system for use with git-big.')
-    finally:
-        if allocate_console:
-            click.pause()
+    enable_dev_mode()
+    enable_git_symlinks()
+    print('Successfully configured system for use with git-big.')
 
 
 SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE = 0x2
