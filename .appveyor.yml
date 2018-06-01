@@ -9,7 +9,10 @@ environment:
       TOXENV: py36
 
 install:
-  - SET PATH=%PYTHON%;%PYTHON%\Scripts;%PATH%
+  - if not exist %USERPROFILE%\bin mkdir %USERPROFILE%\bin
+  - appveyor DownloadFile https://dl.minio.io/server/minio/release/windows-amd64/minio.exe -FileName %USERPROFILE%\bin\minio.exe
+  - SET PATH=%PYTHON%;%PYTHON%\Scripts;%USERPROFILE%\bin;%PATH%
+  - minio version
   - python -m pip install tox
 
 build: off
@@ -20,4 +23,6 @@ cache:
 test_script:
   - git config --system core.symlinks true
   - git config --global core.symlinks true
+  - git config --global user.email "appveyor@vertex.ai"
+  - git config --global user.anem "appveyor"
   - tox

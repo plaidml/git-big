@@ -102,7 +102,7 @@ def boto_env(ctx):
             minio_netloc, ctx.depot_dir
         ],
         env=env)
-    time.sleep(2)  # wait a bit for minio to startup
+    time.sleep(5)  # wait a bit for minio to startup
     try:
         yield depot_config
     finally:
