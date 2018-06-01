@@ -127,7 +127,10 @@ class WindowsFileSystem(object):
         fs.link(src, dst)
 
     def symlink(self, src, dst):
-        fs.symlink(src, dst, SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE)
+        flag = SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE
+        if os.getenv('APPVEYOR'):
+            flag = 0
+        fs.symlink(src, dst, flag)
 
 
 if __name__ == '__main__':
