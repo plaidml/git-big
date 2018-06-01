@@ -7,7 +7,7 @@ environment:
 
 install:
   - SET PATH=%PYTHON%;%PYTHON%\Scripts;%PATH%
-  - python -m pip install tox
+  - python -m pip install jaraco.windows pywin32 tox
 
 build: off
 

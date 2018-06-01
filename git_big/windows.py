@@ -2,7 +2,6 @@ import os
 import subprocess
 import sys
 
-import click
 import jaraco.windows.filesystem as fs
 import win32con
 from win32com.shell import shell, shellcon
@@ -32,8 +31,7 @@ def _respawn_as_administrator():
             lpParameters=' '.join(['--allocate-console'] + sys.argv[1:]),
             fMask=shellcon.SEE_MASK_NOCLOSEPROCESS)
     except:
-        raise click.ClickException(
-            'Could not elevate to administrator privileges')
+        sys.exit('Could not elevate to administrator privileges')
     handle = process['hProcess']
     win32event.WaitForSingleObject(handle, win32event.INFINITE)
     exitcode = win32process.GetExitCodeProcess(handle)
@@ -85,13 +83,7 @@ def check():
     return False
 
 
-@click.command()
-@click.option(
-    '--allocate-console/--no-allocate-console',
-    default=False,
-    help='allocate a separate output console')
-def cli(allocate_console):
-    """Configures Windows systems for git-big."""
+def setup(click, allocate_console):
     if not shell.IsUserAnAdmin():
         enable_git_symlinks()
         return _respawn_as_administrator()

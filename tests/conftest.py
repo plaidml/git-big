@@ -17,6 +17,7 @@ from __future__ import print_function
 import contextlib
 import os
 import platform
+import time
 from subprocess import Popen, check_output
 
 import pytest
@@ -101,6 +102,7 @@ def boto_env(ctx):
             minio_netloc, ctx.depot_dir
         ],
         env=env)
+    time.sleep(2)  # wait a bit for minio to startup
     try:
         yield depot_config
     finally:

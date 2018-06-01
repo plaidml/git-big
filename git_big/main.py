@@ -1118,5 +1118,13 @@ def cmd_custom_merge(ancestor, current, other):
 
 
 if platform.system() == 'Windows':
-    import git_big.windows
-    cli.add_command(git_big.windows.cli, name='windows-setup')
+
+    @cli.command('windows-setup')
+    @click.option(
+        '--allocate-console/--no-allocate-console',
+        default=False,
+        help='allocate a separate output console')
+    def cmd_windows_setup(allocate_console):
+        """Configures Windows systems for git-big."""
+        import git_big.windows
+        git_big.windows.setup(click, allocate_console)
