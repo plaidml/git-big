@@ -24,5 +24,5 @@ test_script:
   - git config --system core.symlinks true
   - git config --global core.symlinks true
   - git config --global user.email "appveyor@vertex.ai"
-  - git config --global user.anem "appveyor"
+  - git config --global user.name "appveyor"
   - tox
