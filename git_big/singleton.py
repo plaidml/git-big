@@ -22,7 +22,6 @@ import errno
 import logging
 import os
 import sys
-import tempfile
 import time
 import unittest
 
@@ -50,7 +49,6 @@ def pid_exists(pid):
     # http://stackoverflow.com/a/23409343/2010538
     # http://stackoverflow.com/a/28065945/2010538
     if os.name != 'nt':
-        import errno
         if pid <= 0:
             return False
         try:

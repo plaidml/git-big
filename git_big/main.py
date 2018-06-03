@@ -30,15 +30,14 @@ import stat
 import subprocess
 import sys
 import tempfile
-import time
 import uuid
 
 import click
 import progressbar
 import six
 
-import git_big.singleton
 import git_big.storage
+from git_big.singleton import Singlet
 
 from . import __version__
 
@@ -1122,7 +1121,7 @@ if IS_WIN:
     def cmd_windows_setup():
         """Configures Windows systems for git-big."""
         import git_big.windows
-        git_big.windows.setup(click)
+        git_big.windows.setup()
 
 
 def main():
@@ -1136,5 +1135,5 @@ def main():
     if not os.path.exists(DEFAULT_CACHE_DIR):
         os.makedirs(DEFAULT_CACHE_DIR)
     lock_path = os.path.join(DEFAULT_CACHE_DIR, 'lock')
-    with git_big.singleton.Singlet(lock_path):
+    with Singlet(lock_path):
         cli()
