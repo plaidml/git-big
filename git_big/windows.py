@@ -7,7 +7,6 @@ import win32con
 from win32com.shell import shell, shellcon
 
 import win32api
-import win32console
 import win32event
 import win32process
 
@@ -85,7 +84,7 @@ def check():
     return False
 
 
-def setup(click, allocate_console):
+def setup():
     if not shell.IsUserAnAdmin():
         return _respawn_as_administrator()
     enable_dev_mode()

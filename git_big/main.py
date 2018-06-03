@@ -28,13 +28,16 @@ import shutil
 import socket
 import stat
 import subprocess
+import sys
 import tempfile
+import time
 import uuid
 
 import click
 import progressbar
 import six
 
+import git_big.singleton
 import git_big.storage
 
 from . import __version__
@@ -42,6 +45,13 @@ from . import __version__
 BLOCKSIZE = 1024 * 1024
 CTX_SETTINGS = dict(help_option_names=['-h', '--help'])
 DEV_NULL = io.open(os.devnull, 'w')
+IS_WIN = platform.system() == 'Windows'
+
+if IS_WIN:
+    DEFAULT_CACHE_DIR = os.path.join(
+        os.getenv('USERPROFILE'), '.cache', 'git-big')
+else:
+    DEFAULT_CACHE_DIR = os.path.expanduser('~/.cache/git-big')
 
 
 def git(*args):
@@ -79,7 +89,7 @@ class PosixFileSystem(object):
         return os.symlink(src, dst)
 
 
-if platform.system() == 'Windows':
+if IS_WIN:
     from git_big.windows import WindowsFileSystem
     fs = WindowsFileSystem()
 else:
@@ -93,7 +103,7 @@ def atomic_open(dst_path, *args, **kwargs):
     try:
         with io.open(tmp_path, *args, **kwargs) as file_:
             yield file_
-        if platform.system() == 'Windows' and os.path.exists(dst_path):
+        if IS_WIN and os.path.exists(dst_path):
             os.unlink(dst_path)
         os.rename(tmp_path, dst_path)
     finally:
@@ -149,12 +159,9 @@ class DepotConfig(object):
 
 
 class UserConfig(object):
-    default_cache_dir = os.path.expanduser(
-        os.path.join('~', '.cache', 'git-big'))
-
     def __init__(self, **kwargs):
         self.version = 1
-        self.cache_dir = kwargs.get('cache_dir', self.default_cache_dir)
+        self.cache_dir = kwargs.get('cache_dir', DEFAULT_CACHE_DIR)
         self.depot = DepotConfig(**kwargs.get('depot', {}))
 
     def __iter__(self):
@@ -457,14 +464,6 @@ class Depot(object):
 
 class App(object):
     def __init__(self):
-        if platform.system() == 'Windows':
-            import git_big.windows
-            if not git_big.windows.check():
-                click.echo(
-                    'git-big requires symlinks to be enabled; run `git big windows-setup`'
-                )
-                raise SystemExit(1)
-
         self.repo = GitRepository()
 
         # Load user configuration, creating anew if none exists
@@ -1117,14 +1116,25 @@ def cmd_custom_merge(ancestor, current, other):
     App().cmd_custom_merge(ancestor, current, other)
 
 
-if platform.system() == 'Windows':
+if IS_WIN:
 
     @cli.command('windows-setup')
-    @click.option(
-        '--allocate-console/--no-allocate-console',
-        default=False,
-        help='allocate a separate output console')
-    def cmd_windows_setup(allocate_console):
+    def cmd_windows_setup():
         """Configures Windows systems for git-big."""
         import git_big.windows
-        git_big.windows.setup(click, allocate_console)
+        git_big.windows.setup(click)
+
+
+def main():
+    if IS_WIN:
+        import git_big.windows
+        if not git_big.windows.check():
+            click.echo(
+                'git-big requires symlinks to be enabled; run `git big windows-setup`'
+            )
+            sys.exit(1)
+    if not os.path.exists(DEFAULT_CACHE_DIR):
+        os.makedirs(DEFAULT_CACHE_DIR)
+    lock_path = os.path.join(DEFAULT_CACHE_DIR, 'lock')
+    with git_big.singleton.Singlet(lock_path):
+        cli()
