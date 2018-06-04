@@ -1,0 +1,28 @@
+image: Visual Studio 2017
+
+environment:
+  APPVEYOR: yes
+  matrix:
+    - PYTHON: C:\Python27-x64
+      TOXENV: py27
+    - PYTHON: C:\Python36-x64
+      TOXENV: py36
+
+install:
+  - if not exist %USERPROFILE%\bin mkdir %USERPROFILE%\bin
+  - appveyor DownloadFile https://dl.minio.io/server/minio/release/windows-amd64/minio.exe -FileName %USERPROFILE%\bin\minio.exe
+  - SET PATH=%PYTHON%;%PYTHON%\Scripts;%USERPROFILE%\bin;%PATH%
+  - minio version
+  - python -m pip install tox
+
+build: off
+
+cache:
+  - '%LOCALAPPDATA%\pip\Cache'
+
+test_script:
+  - git config --system core.symlinks true
+  - git config --global core.symlinks true
+  - git config --global user.email "appveyor@vertex.ai"
+  - git config --global user.name "appveyor"
+  - tox

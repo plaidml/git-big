@@ -16,20 +16,11 @@
 
 VERSION=$(shell python -c 'import git_big; print(git_big.__version__)')
 
-WHEEL=dist/git_big-${VERSION}-py2-none-any.whl
+WHEEL=dist/git_big-${VERSION}-py2.py3-none-any.whl
 
-all: requirements-dev.txt ${WHEEL}
+all: ${WHEEL}
 clean:
-	rm -f requirements*.txt
-	rm -rf build
-	rm -rf dist
-	find . -name *.pyc -delete
-
-%.txt: %.in
-	pip-compile $<
-
-requirements-dev.txt: requirements-dev.in
-	dos2unix requirements.txt
+	git clean -fxd
 
 ${WHEEL}: setup.py git_big/*.py
 	python $< bdist_wheel
@@ -37,10 +28,20 @@ ${WHEEL}: setup.py git_big/*.py
 publish: ${WHEEL}
 	git tag ${VERSION}
 	git push upstream --tag
-	twine upload ${WHEEL}
+	pipenv run twine upload ${WHEEL}
 
 install:
 	pip install -e .
 
-test: install
-	pytest
+dev:
+	@echo 'You need to install minio to run tests'
+	@echo 'See: https://docs.minio.io/docs/minio-quickstart-guide'
+	pipenv install --dev
+
+test: dev
+	minio version
+	pipenv run py.test tests
+
+tox: dev
+	minio version
+	pipenv run tox

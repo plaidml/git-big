@@ -14,25 +14,26 @@
 
 from __future__ import print_function
 
-from os.path import isfile, join
-from subprocess import check_output
+from os.path import join
+from subprocess import check_call
 
 # pylint: disable=unused-argument,W0621
 from conftest import HELLO_CONTENT, HELLO_DIGEST
+from git_big.main import fs
 
 
-def test_push(env):
+def test_push(depot_env):
     '''Push a file up to the depot'''
 
     # add a file
-    file_ = join(env.repo_dir, 'foo')
+    file_ = join(depot_env.repo_dir, 'foo')
     open(file_, 'w').write(HELLO_CONTENT)
-    check_output(['git', 'big', 'add', file_])
+    check_call(['git', 'big', 'add', file_])
 
     # push up to the depot
-    check_output(['git', 'big', 'push'])
+    check_call(['git', 'big', 'push'])
 
-    assert isfile(join(env.bucket_dir, 'objects', HELLO_DIGEST))
+    assert fs.isfile(join(depot_env.bucket_dir, 'objects', HELLO_DIGEST))
 
     # 2nd push should be a nop
-    check_output(['git', 'big', 'push'])
+    check_call(['git', 'big', 'push'])

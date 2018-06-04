@@ -1,7 +1,0 @@
-bpython
-pip-review
-pip-tools
-pylint
-pytest
-twine
-yapf

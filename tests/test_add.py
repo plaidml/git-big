@@ -16,7 +16,7 @@ from __future__ import print_function
 
 import os
 from os.path import join
-from subprocess import check_output
+from subprocess import check_call, check_output
 
 # pylint: disable=unused-argument,W0621
 from conftest import (HELLO_CONTENT, HELLO_DIGEST, WORLD_CONTENT, WORLD_DIGEST,
@@ -25,7 +25,7 @@ from conftest import (HELLO_CONTENT, HELLO_DIGEST, WORLD_CONTENT, WORLD_DIGEST,
 
 def add_file(env, file_, digest, expected_status):
     # add the file to git-big
-    check_output(['git', 'big', 'add', file_])
+    check_call(['git', 'big', 'add', file_])
 
     # git should now ignore the new file
     check_status(expected_status)
@@ -86,6 +86,9 @@ def test_add_changed(env):
     add_file(env, file_, HELLO_DIGEST,
              ['A  .gitattributes', 'A  .gitbig', 'A  foo'])
 
+    # unlock the file
+    check_output(['git', 'big', 'unlock', file_])
+
     os.unlink(file_)
     open(file_, 'w').write(WORLD_CONTENT)
 
@@ -97,7 +100,7 @@ def test_add_directory(env):
     '''Adding a directory should recursively add all files underneath'''
     dir1 = join(env.repo_dir, 'dir')
     file1 = join(dir1, 'foo')
-    dir2 = join(dir1, 'dir')
+    dir2 = join(dir1, 'nested')
     file2 = join(dir2, 'foo')
     os.makedirs(dir2)
 
@@ -112,7 +115,7 @@ def test_add_directory(env):
 
     # git should now ignore the new files
     check_status(
-        ['A  .gitattributes', 'A  .gitbig', 'A  dir/dir/foo', 'A  dir/foo'])
+        ['A  .gitattributes', 'A  .gitbig', 'A  dir/foo', 'A  dir/nested/foo'])
 
     check_locked_file(env, file1, HELLO_DIGEST)
     check_locked_file(env, file2, WORLD_DIGEST)

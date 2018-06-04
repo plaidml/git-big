@@ -15,10 +15,10 @@
 from __future__ import print_function
 
 import collections
+import contextlib
 import errno
 import getpass
 import hashlib
-import importlib
 import io
 import json
 import os
@@ -28,44 +28,34 @@ import shutil
 import socket
 import stat
 import subprocess
+import sys
 import tempfile
 import uuid
 
 import click
 import progressbar
+import six
 
 import git_big.storage
+from git_big.singleton import Singlet
 
 from . import __version__
 
 BLOCKSIZE = 1024 * 1024
 CTX_SETTINGS = dict(help_option_names=['-h', '--help'])
-DEV_NULL = open(os.devnull, 'w')
+DEV_NULL = io.open(os.devnull, 'w')
+IS_WIN = platform.system() == 'Windows'
 
-if platform.system() == 'Windows':
-    import win32api, win32con
-    rkey = win32api.RegOpenKey(
-        win32con.HKEY_LOCAL_MACHINE,
-        'SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock', 0,
-        win32con.KEY_READ)
-    (val, typ) = win32api.RegQueryValueEx(rkey,
-                                          'AllowDevelopmentWithoutDevLicense')
-    symlinks = subprocess.check_output(
-        ['git', 'config', 'core.symlinks'], shell=True)
-    if val != 1 or not 'true' in symlinks:
-        print(
-            'git-big requires symlinks to be enabled; run `git-big windows-setup`'
-        )
-        exit(1)
-    orig_relpath = os.path.relpath
-    orig_join = os.path.join
-    os.path.join = lambda start, *rest: orig_join(start, *rest).replace(os.path.sep,'/')
-    os.path.relpath = lambda to, rel: orig_relpath(
-        to, rel).replace(os.path.sep, '/')
+if IS_WIN:
+    DEFAULT_CACHE_DIR = os.path.join(
+        os.getenv('USERPROFILE'), '.cache', 'git-big')
+else:
+    DEFAULT_CACHE_DIR = os.path.expanduser('~/.cache/git-big')
 
 
 def git(*args):
-    return subprocess.check_output(['git'] + map(str, args), stderr=DEV_NULL)
+    return subprocess.check_output(
+        ['git'] + list(map(str, args)), stderr=DEV_NULL).decode()
 
 
 def human_size(num):
@@ -79,6 +69,45 @@ def human_size(num):
             return '{:3.1f}{}'.format(num, unit)
         num /= 1024.0
     return '{:3.1f}{}'.format(num, 'Y')
+
+
+class PosixFileSystem(object):
+    def islink(self, path):
+        return os.path.islink(path)
+
+    def isfile(self, path):
+        return os.path.isfile(path)
+
+    def readlink(self, path):
+        return os.readlink(path)
+
+    def link(self, src, dst):
+        return os.link(src, dst)
+
+    def symlink(self, src, dst):
+        return os.symlink(src, dst)
+
+
+if IS_WIN:
+    from git_big.windows import WindowsFileSystem
+    fs = WindowsFileSystem()
+else:
+    fs = PosixFileSystem()
+
+
+@contextlib.contextmanager
+def atomic_open(dst_path, *args, **kwargs):
+    tmp_file, tmp_path = tempfile.mkstemp()
+    os.close(tmp_file)
+    try:
+        with io.open(tmp_path, *args, **kwargs) as file_:
+            yield file_
+        if IS_WIN and os.path.exists(dst_path):
+            os.unlink(dst_path)
+        os.rename(tmp_path, dst_path)
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 
 class GitIndex(object):
@@ -102,7 +131,8 @@ class GitRepository(object):
                 self.git_dir = git('rev-parse', '--git-common-dir').rstrip()
         except subprocess.CalledProcessError:
             raise click.ClickException('git or git repository not found')
-        self.working_dir = git('rev-parse', '--show-toplevel').rstrip()
+        self.working_dir = os.path.normpath(
+            git('rev-parse', '--show-toplevel').rstrip())
         self.index = GitIndex()
         self.is_bare = git('rev-parse',
                            '--is-bare-repository').rstrip() == 'true'
@@ -128,12 +158,9 @@ class DepotConfig(object):
 
 
 class UserConfig(object):
-    default_cache_dir = os.path.expanduser(
-        os.path.join('~', '.cache', 'git-big'))
-
     def __init__(self, **kwargs):
         self.version = 1
-        self.cache_dir = kwargs.get('cache_dir', self.default_cache_dir)
+        self.cache_dir = kwargs.get('cache_dir', DEFAULT_CACHE_DIR)
         self.depot = DepotConfig(**kwargs.get('depot', {}))
 
     def __iter__(self):
@@ -227,7 +254,7 @@ class Entry(object):
 
     @property
     def is_link(self):
-        return os.path.islink(self.working_path)
+        return fs.islink(self.working_path)
 
     @property
     def in_working(self):
@@ -236,7 +263,7 @@ class Entry(object):
     @property
     def is_linked(self):
         return self.in_anchors and self.is_link and \
-            os.readlink(self.working_path) == self.symlink_path
+            fs.readlink(self.working_path) == self.symlink_path
 
     @property
     def in_depot(self):
@@ -271,7 +298,7 @@ def compute_digest(path, rel_path):
     algorithm = hashlib.sha256()
     size = os.path.getsize(path)
     with make_progress_bar(rel_path, size) as pbar:
-        with open(path, 'rb') as file_:
+        with io.open(path, 'rb') as file_:
             total_len = 0
             while True:
                 buf = file_.read(BLOCKSIZE)
@@ -314,11 +341,9 @@ def make_executable(path):
 
 def rmtree_err_handler(function, path, excinfo):
     excvalue = excinfo[1]
-    if function in (os.rmdir, os.remove) and excvalue.errno == errno.EACCES:
+    if function == os.unlink and excvalue.errno == errno.EACCES:
         os.chmod(path, stat.S_IWUSR)
         function(path)
-    else:
-        raise
 
 
 class DepotIndex(object):
@@ -341,7 +366,7 @@ class DepotIndex(object):
     def _load(self):
         self.__index = dict()
         if os.path.exists(self.path):
-            with open(self.path, 'r') as file_:
+            with io.open(self.path, 'r', encoding='utf-8') as file_:
                 for line in file_:
                     pair = line.rstrip().split(' ', 2)
                     if len(pair) == 2:
@@ -351,9 +376,9 @@ class DepotIndex(object):
         dir_path = os.path.dirname(self.path)
         if not os.path.exists(dir_path):
             os.makedirs(dir_path)
-        with io.open(self.path, 'w', newline='\n') as file_:
+        with atomic_open(self.path, 'wb') as file_:
             for digest, size in self.__index.items():
-                file_.write(u'{} {}\n'.format(digest, size))
+                file_.write('{} {}\n'.format(digest, size).encode())
 
 
 class Depot(object):
@@ -391,16 +416,18 @@ class Depot(object):
             click.echo('Object missing from depot: %s' % entry.digest)
             return
         # Make a temp location for download until we verify it's good
-        tmp = tempfile.mkstemp(dir=self.tmp_dir)
-        pending_path = tmp[1]
-        tracker_path = os.path.join(self.tmp_dir, entry.digest + '.tracker')
-        self.__storage.get_file(entry.depot_path, pending_path, tracker_path)
-        # Finalize and rename
-        cache_dir = os.path.dirname(entry.cache_path)
-        if not os.path.exists(cache_dir):
-            os.makedirs(cache_dir)
-        os.close(tmp[0])
-        os.rename(pending_path, entry.cache_path)
+        tmp_file, tmp_path = tempfile.mkstemp(dir=self.tmp_dir)
+        os.close(tmp_file)
+        try:
+            self.__storage.get_file(entry.depot_path, tmp_path)
+            # Finalize and rename
+            cache_dir = os.path.dirname(entry.cache_path)
+            if not os.path.exists(cache_dir):
+                os.makedirs(cache_dir)
+            os.rename(tmp_path, entry.cache_path)
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
         # Lock and add to cache
         lock_file(entry.cache_path)
         self.index.add_digest(entry.digest, entry._depot_size)
@@ -408,10 +435,7 @@ class Depot(object):
     def put(self, entry):
         self._entry(entry)
         if not entry.in_depot:
-            tracker_path = os.path.join(self.tmp_dir,
-                                        entry.digest + '.tracker')
-            self.__storage.put_file(entry.depot_path, entry.cache_path,
-                                    tracker_path)
+            self.__storage.put_file(entry.depot_path, entry.cache_path)
             self.index.add_digest(entry.digest,
                                   os.path.getsize(entry.cache_path))
 
@@ -425,13 +449,9 @@ class Depot(object):
         return (obj, refs)
 
     def save_refs(self, refs):
-        if platform.system() != 'Windows':
-            user = getpass.getuser()
-        else:
-            user = os.path.split(os.path.expanduser('~'))[-1]
         metadata = {
             'host': socket.gethostname(),
-            'user': user,
+            'user': getpass.getuser(),
             'path': self.repo.git_dir,
         }
         buf = '\n'.join(refs)
@@ -449,7 +469,8 @@ class App(object):
         self.user_config_path = os.path.expanduser(
             os.path.join('~', '.gitbig'))
         if os.path.exists(self.user_config_path):
-            with open(self.user_config_path, 'r') as file_:
+            with io.open(
+                    self.user_config_path, 'r', encoding='utf-8') as file_:
                 self.user_config = UserConfig(**json.load(file_))
         else:
             self.user_config = UserConfig()
@@ -457,7 +478,8 @@ class App(object):
         # Load repo configuration, creating anew if none exists
         self.repo_config_path = os.path.join(self.repo.working_dir, '.gitbig')
         if os.path.exists(self.repo_config_path):
-            with open(self.repo_config_path, 'r') as file_:
+            with io.open(
+                    self.repo_config_path, 'r', encoding='utf-8') as file_:
                 self.repo_config = self._load_config(file_)
         else:
             self.repo_config = RepoConfig()
@@ -517,8 +539,8 @@ class App(object):
             c_bit = entry.in_cache and 'C' or ' '
             d_bit = entry.in_depot and 'D' or ' '
             click.echo('[ {} {} {} ] {} {:>6} {}'.format(
-                w_bit, c_bit, d_bit, entry.digest[:8],
-                human_size(entry.size), entry.rel_path))
+                w_bit, c_bit, d_bit, entry.digest[:8], human_size(entry.size),
+                entry.rel_path))
         click.echo()
 
     def cmd_add(self, paths):
@@ -577,7 +599,7 @@ class App(object):
                     anchor_dir = os.path.dirname(entry.anchor_path)
                     if not os.path.exists(anchor_dir):
                         os.makedirs(anchor_dir)
-                    os.link(entry.cache_path, entry.anchor_path)
+                    fs.link(entry.cache_path, entry.anchor_path)
                 # add a symlink from the working path to the anchor
                 if not entry.in_working:
                     click.echo('Linking: %s -> %s' % (entry.digest[:8],
@@ -585,7 +607,7 @@ class App(object):
                     entry_dir = os.path.dirname(entry.working_path)
                     if not os.path.exists(entry_dir):
                         os.makedirs(entry_dir)
-                    os.symlink(entry.symlink_path, entry.working_path)
+                    fs.symlink(entry.symlink_path, entry.working_path)
                 elif not entry.is_link:
                     click.echo('Pull aborted, dirty file detected: "%s"' %
                                entry.rel_path)
@@ -600,12 +622,12 @@ class App(object):
                     else:
                         # otherwise treat the hardlink as a path to the target
                         extra_path = extra
-                    click.echo('Linking: %s -> %s' % (entry.digest[:8],
-                                                      extra_path))
+                    click.echo(
+                        'Linking: %s -> %s' % (entry.digest[:8], extra_path))
                     extra_dir = os.path.dirname(extra_path)
                     if not os.path.exists(extra_dir):
                         os.makedirs(extra_dir)
-                    os.link(entry.cache_path, extra_path)
+                    fs.link(entry.cache_path, extra_path)
             else:
                 click.echo(
                     'File "{}" not available locally; use `git big pull --hard` to download it'.
@@ -636,14 +658,14 @@ class App(object):
                     click.echo('  Hash: %s' % digest)
 
     def cmd_custom_merge(self, ancestor_path, current_path, other_path):  # pylint: disable=W0613
-        with open(current_path, 'r') as file_:
+        with io.open(current_path, 'r', encoding='utf-8') as file_:
             current = self._load_config(file_)
-        with open(other_path, 'r') as file_:
+        with io.open(other_path, 'r', encoding='utf-8') as file_:
             other = self._load_config(file_)
         current.merge(other)
-        with open(current_path, 'w') as file_:
-            json.dump(dict(current), file_, indent=4)
-            file_.write('\n')
+        with atomic_open(current_path, 'wb') as file_:
+            file_.write(json.dumps(dict(current), indent=4).encode())
+            file_.write('\n'.encode())
 
     def _find_reachable_objects(self):
         reachable = set()
@@ -656,7 +678,7 @@ class App(object):
         for obj in objects:
             raw_index = git('show', obj)
             index = RepoConfig(**json.loads(raw_index))
-            for digest in index.files.itervalues():
+            for digest in six.itervalues(index.files):
                 reachable.add(digest)
         return reachable
 
@@ -666,15 +688,15 @@ class App(object):
     def _save_config(self):
         self.git_config.save()
 
-        with open(self.user_config_path, 'w') as file_:
-            json.dump(dict(self.user_config), file_, indent=4)
-            file_.write('\n')
+        with atomic_open(self.user_config_path, 'wb') as file_:
+            file_.write(json.dumps(dict(self.user_config), indent=4).encode())
+            file_.write('\n'.encode())
 
         if self.repo_config.files:
-            with io.open(self.repo_config_path, 'w', newline='\n') as file_:
-                jscfg = json.dumps(
-                    dict(self.repo_config), indent=4, encoding='utf-8')
-                file_.write(u'' + jscfg + '\n')
+            with atomic_open(self.repo_config_path, 'wb') as file_:
+                file_.write(
+                    json.dumps(dict(self.repo_config), indent=4).encode())
+                file_.write('\n'.encode())
             self.repo.index.add([self.repo_config_path])
         else:
             if os.path.exists(self.repo_config_path):
@@ -688,15 +710,16 @@ class App(object):
         changed = False
         lines = []
         if os.path.exists(path):
-            with open(path, 'r') as file_:
+            with io.open(path, 'r', encoding='utf-8') as file_:
                 for line in file_:
                     lines.append(line.rstrip())
         if to_add not in lines:
             lines.append(to_add)
             changed = True
-        with io.open(path, 'w', newline='\n') as file_:
+        with atomic_open(path, 'wb') as file_:
             for line in lines:
-                file_.write(u'' + line + '\n')
+                file_.write(line.encode())
+                file_.write('\n'.encode())
         return changed
 
     def _install_hooks(self):
@@ -717,13 +740,13 @@ class App(object):
         hooks_dir = os.path.join(self.repo.git_dir, 'hooks')
         hook_path = os.path.join(hooks_dir, hook)
         if os.path.exists(hook_path):
-            with open(hook_path, 'r') as file_:
+            with io.open(hook_path, 'r', encoding='utf-8') as file_:
                 existing_content = file_.read()
             if existing_content == hook_content:
                 return
             os.rename(hook_path, os.path.join(hooks_dir, '%s.git-big' % hook))
-        with open(hook_path, 'w') as file_:
-            file_.write(hook_content)
+        with atomic_open(hook_path, 'wb') as file_:
+            file_.write(hook_content.encode())
         make_executable(hook_path)
 
     def _call_hook_chain(self, hook, *args):
@@ -750,7 +773,7 @@ class App(object):
                 yield path
 
     def _add_file(self, path):
-        if os.path.islink(path):
+        if fs.islink(path):
             return
 
         rel_path = os.path.relpath(
@@ -771,9 +794,9 @@ class App(object):
             anchor_dir = os.path.dirname(entry.anchor_path)
             if not os.path.exists(anchor_dir):
                 os.makedirs(anchor_dir)
-            os.link(entry.cache_path, entry.anchor_path)
+            fs.link(entry.cache_path, entry.anchor_path)
 
-        os.symlink(entry.symlink_path, entry.working_path)
+        fs.symlink(entry.symlink_path, entry.working_path)
         self.repo.index.add([entry.working_path])
 
         self.repo_config.files[rel_path] = digest
@@ -794,7 +817,8 @@ class App(object):
     def _copy_via_chunk(self, src, dst):
         size = os.path.getsize(src)
         rel_path = os.path.relpath(os.path.abspath(dst), self.repo.working_dir)
-        with open(src, 'rb') as src_file_, open(dst, 'wb') as dst_file_:
+        with io.open(src, 'rb') as src_file_, atomic_open(dst,
+                                                          'wb') as dst_file_:
             with make_progress_bar(rel_path, size) as pbar:
                 copied = 0
                 while True:
@@ -806,7 +830,7 @@ class App(object):
                     pbar.update(copied)
 
     def _unlock_file(self, path):
-        if not os.path.islink(path):
+        if not fs.islink(path):
             return
         rel_path = os.path.relpath(
             os.path.abspath(path), self.repo.working_dir)
@@ -847,7 +871,7 @@ class App(object):
             click.echo('Source not in index: %s' % src)
 
         entry = Entry(self.config, rel_tgt, digest)
-        os.symlink(entry.symlink_path, entry.working_path)
+        fs.symlink(entry.symlink_path, entry.working_path)
         self.repo.index.add([entry.working_path])
         self.repo_config.files[rel_tgt] = digest
 
@@ -865,7 +889,7 @@ class App(object):
 
         src_entry = Entry(self.config, rel_src, digest)
         tgt_entry = Entry(self.config, rel_tgt, digest)
-        os.symlink(tgt_entry.symlink_path, tgt_entry.working_path)
+        fs.symlink(tgt_entry.symlink_path, tgt_entry.working_path)
         os.unlink(src_entry.working_path)
         self.repo.index.add([tgt_entry.working_path])
         self.repo.index.remove([src_entry.working_path])
@@ -907,7 +931,7 @@ def cmd_init():
 @click.option('--secret', prompt=True, help='The git-big depot secret')
 @click.option('--key', prompt=True, help='The git-big depot key')
 def cmd_set_depot(url, secret, key):
-    """Sets the git-big depot in the local git configuration"""
+    """Sets depot configuration."""
     git('config', 'git-big.depot.url', url)
     git('config', 'git-big.depot.key', key)
     git('config', 'git-big.depot.secret', secret)
@@ -1091,6 +1115,25 @@ def cmd_custom_merge(ancestor, current, other):
     App().cmd_custom_merge(ancestor, current, other)
 
 
-if platform.system() == 'Windows':
-    win = importlib.import_module('..windows_setup', 'git_big.main')
-    cli.add_command(win.cli, name='windows-setup')
+if IS_WIN:
+
+    @cli.command('windows-setup')
+    def cmd_windows_setup():
+        """Configures Windows systems for git-big."""
+        import git_big.windows
+        git_big.windows.setup()
+
+
+def main():
+    if IS_WIN:
+        import git_big.windows
+        if not git_big.windows.check():
+            click.echo(
+                'git-big requires symlinks to be enabled; run `git big windows-setup`'
+            )
+            sys.exit(1)
+    if not os.path.exists(DEFAULT_CACHE_DIR):
+        os.makedirs(DEFAULT_CACHE_DIR)
+    lock_path = os.path.join(DEFAULT_CACHE_DIR, 'lock')
+    with Singlet(lock_path):
+        cli()

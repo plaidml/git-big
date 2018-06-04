@@ -16,25 +16,23 @@ from __future__ import print_function
 
 import os
 from os.path import join
-from subprocess import check_output
+from subprocess import check_call, check_output
 
 # pylint: disable=unused-argument,W0621
-from conftest import (HELLO_CONTENT, HELLO_DIGEST, check_locked_file,
-                      check_status)
+from conftest import HELLO_CONTENT
 
 
-def test_add(env):
-    '''Create a subdirectoyr, ensure big files work still'''
+def test_subdir(env):
+    '''Create a subdirectory, ensure big files work still'''
 
     # add a file and commit
     os.mkdir(join(env.repo_dir, 'foo'))
     prev_dir = os.getcwd()
     os.chdir(join(env.repo_dir, 'foo'))
     try:
-        file_ = join('bar')
+        file_ = 'bar'
         open(file_, 'w').write(HELLO_CONTENT)
-        check_output(['git', 'big', 'add', file_])
+        check_call(['git', 'big', 'add', file_])
         check_output(['git', 'commit', '-m', 'message'])
     finally:
         os.chdir(prev_dir)
-
