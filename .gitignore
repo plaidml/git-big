@@ -12,3 +12,4 @@ __pycache__
 /.tox
 /Pipfile.lock
 /.eggs
+/.env

@@ -23,7 +23,7 @@ clean:
 	git clean -fxd
 
 ${WHEEL}: setup.py git_big/*.py
-	python $< bdist_wheel
+	pipenv run python $< bdist_wheel
 
 publish: ${WHEEL}
 	git tag ${VERSION}

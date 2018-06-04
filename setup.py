@@ -17,4 +17,4 @@
 from setuptools import setup
 
 if __name__ == '__main__':
-    setup()
+    setup(setup_requires=['setuptools>=36.2.7'])
