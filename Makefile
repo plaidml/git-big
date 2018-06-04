@@ -23,7 +23,7 @@ clean:
 	git clean -fxd
 
 ${WHEEL}: setup.py git_big/*.py
-	python $< bdist_wheel
+	pipenv run python $< bdist_wheel
 
 publish: ${WHEEL}
 	git tag ${VERSION}
@@ -34,6 +34,7 @@ install:
 	pip install -e .
 
 dev:
+	./configure
 	@echo 'You need to install minio to run tests'
 	@echo 'See: https://docs.minio.io/docs/minio-quickstart-guide'
 	pipenv install --dev
