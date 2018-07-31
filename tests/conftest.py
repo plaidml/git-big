@@ -46,6 +46,8 @@ class Context(object):
             os.makedirs(self.bucket_dir)
 
     def git_big_init(self, depot_config):
+        check_output(['git', 'config', 'user.email', 'you@example.com'])
+        check_output(['git', 'config', 'user.name', 'Your Name'])
         check_output(['git', 'config', 'git-big.cache-dir', self.cache_dir])
         check_output([
             'git',
