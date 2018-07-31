@@ -104,7 +104,10 @@ def atomic_open(dst_path, *args, **kwargs):
             yield file_
         if IS_WIN and os.path.exists(dst_path):
             os.unlink(dst_path)
-        os.rename(tmp_path, dst_path)
+        try:
+            os.rename(tmp_path, dst_path)
+        except:
+            shutil.copy2(tmp_path, dst_path)
     finally:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
