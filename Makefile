@@ -26,7 +26,7 @@ ${WHEEL}: setup.py git_big/*.py
 	pipenv run python $< bdist_wheel
 
 publish: ${WHEEL}
-	git tag ${VERSION}
+	git tag "v${VERSION}"
 	git push upstream --tag
 	pipenv run twine upload ${WHEEL}
 
@@ -37,7 +37,7 @@ dev:
 	./configure
 	@echo 'You need to install minio to run tests'
 	@echo 'See: https://docs.minio.io/docs/minio-quickstart-guide'
-	pipenv install --dev
+	pipenv install --dev -e .
 
 test: dev
 	minio version
